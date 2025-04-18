@@ -12,10 +12,17 @@ import {
   TableHead, 
   TableRow,
   IconButton,
-  Collapse
+  Collapse,
+  Accordion,
+  AccordionSummary,
+  AccordionDetails,
+  Divider,
+  Chip
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ErrorIcon from '@mui/icons-material/Error';
 
 // Fallback simple JSON viewer component as default
 const SimpleJSONViewer = ({ data }) => (
@@ -29,19 +36,55 @@ const SimpleJSONViewer = ({ data }) => (
   </pre>
 );
 
-// Use directly without dynamic import for now to debug the issue
-const ResultsDisplay = ({ results }) => {
-  const [viewMode, setViewMode] = useState('json');
+// Simple component to format MongoDB shell queries with basic syntax highlighting
+const MongoQueryDisplay = ({ query }) => {
+  // First unescape any HTML entities already in the query
+  const unescapeHtml = (text) => {
+    return text
+      .replace(/&quot;/g, '"')
+      .replace(/&#039;/g, "'")
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&');
+  };
   
-  if (!results) {
-    return (
-      <Paper variant="outlined" sx={{ p: 3, bgcolor: 'background.paper' }}>
-        <Typography variant="body1" color="text.secondary" align="center">
-          Run a query to see results here
-        </Typography>
-      </Paper>
-    );
-  }
+  // Then escape HTML for safe display
+  const escapeHtml = (text) => {
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
+
+  // Pre-process the query to handle both escaped and unescaped versions
+  const processedQuery = escapeHtml(unescapeHtml(query));
+
+  return (
+    <Box 
+      component="pre" 
+      sx={{ 
+        fontFamily: 'monospace', 
+        fontSize: '14px',
+        whiteSpace: 'pre-wrap',
+        padding: '8px 12px',
+        backgroundColor: '#f8f9fa',
+        border: '1px solid #e1e4e8',
+        borderRadius: '4px',
+        boxShadow: 'inset 0 1px 2px rgba(0, 0, 0, 0.05)',
+        overflowX: 'auto',
+        color: '#24292e',
+        margin: 0
+      }}
+      dangerouslySetInnerHTML={{ __html: processedQuery }}
+    />
+  );
+};
+
+// Results display for a single query result
+const SingleResultDisplay = ({ results }) => {
+  const [viewMode, setViewMode] = useState('json');
   
   const handleChangeViewMode = (event, newValue) => {
     setViewMode(newValue);
@@ -58,7 +101,7 @@ const ResultsDisplay = ({ results }) => {
     : Object.keys(results || {});
   
   return (
-    <Paper variant="outlined" sx={{ bgcolor: 'background.paper', flexGrow: 1, overflow: 'auto' }}>
+    <Box>
       <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', px: 2 }}>
         <Tabs value={viewMode} onChange={handleChangeViewMode}>
           <Tab value="json" label="JSON" />
@@ -100,7 +143,103 @@ const ResultsDisplay = ({ results }) => {
           </TableContainer>
         )}
       </Box>
-    </Paper>
+    </Box>
+  );
+};
+
+// Component for multi-query results display
+const MultiQueryResultDisplay = ({ results }) => {
+  const [expandedPanel, setExpandedPanel] = useState(0);
+
+  const handlePanelChange = (panel) => (event, isExpanded) => {
+    setExpandedPanel(isExpanded ? panel : -1);
+  };
+
+  return (
+    <Box>
+      <Typography variant="h6" sx={{ px: 2, py: 1 }}>
+        Multiple Query Results
+      </Typography>
+      <Divider />
+      
+      {results.map((result, index) => (
+        <Accordion 
+          key={index}
+          expanded={expandedPanel === index}
+          onChange={handlePanelChange(index)}
+          TransitionProps={{ unmountOnExit: true }}
+        >
+          <AccordionSummary
+            expandIcon={<ExpandMoreIcon />}
+            sx={{ 
+              bgcolor: result.success ? 'rgba(46, 125, 50, 0.1)' : 'rgba(211, 47, 47, 0.1)',
+              '&:hover': { 
+                bgcolor: result.success ? 'rgba(46, 125, 50, 0.2)' : 'rgba(211, 47, 47, 0.2)'
+              },
+              color: result.success ? 'success.dark' : 'error.dark'
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+              {result.success 
+                ? <CheckCircleIcon color="success" sx={{ mr: 1 }} /> 
+                : <ErrorIcon color="error" sx={{ mr: 1 }} />
+              }
+              <Typography color="inherit" fontWeight="medium">
+                Query {result.queryNumber}: {result.success ? 'Success' : 'Failed'}
+              </Typography>
+              <Box sx={{ flexGrow: 1 }} />
+              <Chip 
+                label={result.success 
+                  ? (Array.isArray(result.result) 
+                    ? `${result.result.length} documents` 
+                    : typeof result.result === 'object' 
+                      ? 'Object' 
+                      : result.result)
+                  : 'Error'
+                }
+                size="small"
+                color={result.success ? "success" : "error"}
+                variant="outlined"
+                sx={{ fontWeight: 'medium' }}
+              />
+            </Box>
+          </AccordionSummary>
+          <AccordionDetails sx={{ p: 0 }}>
+            <Box sx={{ p: 2, bgcolor: 'background.paper' }}>
+              <Typography variant="subtitle2" sx={{ mb: 1 }}>Query:</Typography>
+              <Box sx={{ mb: 2 }}>
+                <MongoQueryDisplay query={result.query} />
+              </Box>
+              
+              {result.success ? (
+                <Box>
+                  <Typography variant="subtitle2">Result:</Typography>
+                  <Paper variant="outlined" sx={{ bgcolor: 'background.paper' }}>
+                    <SingleResultDisplay results={result.result} />
+                  </Paper>
+                </Box>
+              ) : (
+                <Box>
+                  <Typography variant="subtitle2">Error:</Typography>
+                  <Paper 
+                    variant="outlined" 
+                    sx={{ 
+                      p: 2, 
+                      bgcolor: 'rgba(211, 47, 47, 0.05)', 
+                      color: 'error.dark',
+                      border: '1px solid',
+                      borderColor: 'error.light'
+                    }}
+                  >
+                    {result.error}
+                  </Paper>
+                </Box>
+              )}
+            </Box>
+          </AccordionDetails>
+        </Accordion>
+      ))}
+    </Box>
   );
 };
 
@@ -158,6 +297,32 @@ const ExpandableTableRow = ({ row, fields }) => {
         </TableRow>
       )}
     </>
+  );
+};
+
+// Main ResultsDisplay component
+const ResultsDisplay = ({ results }) => {
+  if (!results) {
+    return (
+      <Paper variant="outlined" sx={{ p: 3, bgcolor: 'background.paper' }}>
+        <Typography variant="body1" color="text.secondary" align="center">
+          Run a query to see results here
+        </Typography>
+      </Paper>
+    );
+  }
+  
+  // Check if this is a multi-query result
+  const isMultiQuery = results && results.multiQuery && Array.isArray(results.results);
+  
+  return (
+    <Paper variant="outlined" sx={{ bgcolor: 'background.paper', flexGrow: 1, overflow: 'auto' }}>
+      {isMultiQuery ? (
+        <MultiQueryResultDisplay results={results.results} />
+      ) : (
+        <SingleResultDisplay results={results} />
+      )}
+    </Paper>
   );
 };
 

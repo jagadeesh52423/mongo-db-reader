@@ -304,13 +304,20 @@ const ConnectionProvider = ({ children }) => {
     }
   };
 
-  const executeQuery = async (queryData, type) => {
+  const executeQuery = async (queryData, type, options = {}) => {
     if (serverStatus !== 'connected') {
       return { success: false, message: 'Server is not running. Please start the server first.' };
     }
     
-    if (!activeConnection || !activeDatabase || !activeCollection) {
-      return { success: false, message: 'No active connection, database or collection selected' };
+    if (!activeConnection || !activeDatabase) {
+      return { success: false, message: 'No active connection or database selected' };
+    }
+    
+    // Allow specifying a different collection than the active one
+    const targetCollection = options.collection || activeCollection;
+    
+    if (!targetCollection) {
+      return { success: false, message: 'No collection specified or selected' };
     }
     
     setLoading(true);
@@ -330,9 +337,10 @@ const ConnectionProvider = ({ children }) => {
             awsRegion: activeConnection.awsRegion
           },
           database: activeDatabase,
-          collection: activeCollection,
+          collection: targetCollection,
           query: queryData,
-          type
+          type,
+          options
         }
       );
       setLoading(false);
