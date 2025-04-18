@@ -11,10 +11,13 @@ import {
   FormControl,
   InputLabel,
   CircularProgress,
-  FormHelperText
+  Chip
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import AddIcon from '@mui/icons-material/Add';
+import CheckCircleIcon from '@mui/icons-material/CheckCircle';
+import ErrorIcon from '@mui/icons-material/Error';
+import SyncIcon from '@mui/icons-material/Sync';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 import ConnectionDialog from './ConnectionDialog';
 
@@ -23,12 +26,11 @@ const Header = ({ handleDrawerToggle }) => {
   const { 
     activeConnection, 
     databases, 
-    activeDatabase, 
-    collections, 
-    activeCollection,
+    activeDatabase,
     setActiveDatabase,
-    setActiveCollection,
-    loading // Add this to fix the error
+    loading,
+    serverStatus,
+    retryConnection
   } = useContext(ConnectionContext);
 
   const handleOpenDialog = () => {
@@ -43,9 +45,8 @@ const Header = ({ handleDrawerToggle }) => {
   useEffect(() => {
     if (activeDatabase) {
       console.log(`Active database changed to: ${activeDatabase}`);
-      console.log(`Collections available:`, collections);
     }
-  }, [activeDatabase, collections]);
+  }, [activeDatabase]);
 
   const handleDatabaseChange = (event) => {
     const dbName = event.target.value;
@@ -53,14 +54,44 @@ const Header = ({ handleDrawerToggle }) => {
     setActiveDatabase(dbName);
   };
 
-  const handleCollectionChange = (event) => {
-    const collectionName = event.target.value;
-    console.log(`Collection selected: ${collectionName}`);
-    setActiveCollection(collectionName);
+  // Get status color and icon based on server status
+  const getStatusInfo = () => {
+    switch(serverStatus) {
+      case 'connected':
+        return {
+          color: 'success',
+          icon: <CheckCircleIcon fontSize="small" />,
+          label: 'Connected'
+        };
+      case 'disconnected':
+        return {
+          color: 'error',
+          icon: <ErrorIcon fontSize="small" />,
+          label: 'Disconnected'
+        };
+      case 'checking':
+      default:
+        return {
+          color: 'warning',
+          icon: <SyncIcon fontSize="small" className="rotating" />,
+          label: 'Checking...'
+        };
+    }
   };
+
+  const statusInfo = getStatusInfo();
 
   return (
     <>
+      <style jsx global>{`
+        .rotating {
+          animation: rotate 2s linear infinite;
+        }
+        @keyframes rotate {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
       <AppBar
         position="fixed"
         sx={{
@@ -81,6 +112,15 @@ const Header = ({ handleDrawerToggle }) => {
             MongoDB Reader
           </Typography>
           
+          <Chip
+            icon={statusInfo.icon}
+            label={statusInfo.label}
+            color={statusInfo.color}
+            size="small"
+            onClick={serverStatus === 'disconnected' ? retryConnection : undefined}
+            sx={{ mr: 2 }}
+          />
+          
           {activeConnection && (
             <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
               <FormControl sx={{ minWidth: 120, mr: 2 }} size="small">
@@ -91,39 +131,13 @@ const Header = ({ handleDrawerToggle }) => {
                   value={activeDatabase || ''}
                   label="Database"
                   onChange={handleDatabaseChange}
+                  endAdornment={loading && <CircularProgress size={20} sx={{ mr: 2 }} />}
                 >
                   {databases.map((db) => (
                     <MenuItem key={db} value={db}>{db}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
-              
-              {activeDatabase && (
-                <FormControl sx={{ minWidth: 120 }} size="small" error={collections.length === 0 && !loading}>
-                  <InputLabel id="collection-select-label">Collection</InputLabel>
-                  <Select
-                    labelId="collection-select-label"
-                    id="collection-select"
-                    value={activeCollection || ''}
-                    label="Collection"
-                    onChange={handleCollectionChange}
-                    endAdornment={loading && <CircularProgress size={20} sx={{ mr: 2 }} />}
-                  >
-                    {collections.length > 0 ? (
-                      collections.map((collection) => (
-                        <MenuItem key={collection} value={collection}>{collection}</MenuItem>
-                      ))
-                    ) : (
-                      <MenuItem disabled value="">
-                        No collections found
-                      </MenuItem>
-                    )}
-                  </Select>
-                  {collections.length === 0 && !loading && (
-                    <FormHelperText>No collections found in this database</FormHelperText>
-                  )}
-                </FormControl>
-              )}
             </Box>
           )}
           

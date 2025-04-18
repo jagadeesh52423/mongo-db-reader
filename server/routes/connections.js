@@ -2,9 +2,20 @@ const express = require('express');
 const { MongoClient } = require('mongodb');
 const aws4 = require('aws4');
 const { URL } = require('url');
+const crypto = require('crypto');
 const Connection = require('../models/Connection');
 
 const router = express.Router();
+
+// Add session token storage
+global.sessionTokens = {};
+// Add storage for local connections that aren't in the database
+global.localConnections = {};
+
+// Helper function to generate a secure session token
+function generateSessionToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
 
 // Get all saved connections
 router.get('/', async (req, res) => {
@@ -54,6 +65,19 @@ router.delete('/:id', async (req, res) => {
       // Close the connection first
       await global.activeConnections[req.params.id].close();
       delete global.activeConnections[req.params.id];
+      
+      // Clean up any session tokens for this connection
+      Object.keys(global.sessionTokens).forEach(token => {
+        if (global.sessionTokens[token].connectionId === req.params.id) {
+          delete global.sessionTokens[token];
+        }
+      });
+    }
+    
+    // Check if it's a local connection
+    if (req.params.id.startsWith('local_')) {
+      delete global.localConnections[req.params.id];
+      return res.json({ message: 'Connection deleted successfully' });
     }
     
     const connection = await Connection.findByIdAndDelete(req.params.id);
@@ -133,16 +157,31 @@ router.post('/test', async (req, res) => {
 // Connect to MongoDB and store the connection
 router.post('/connect/:id', async (req, res) => {
   try {
-    const connection = await Connection.findById(req.params.id);
-    if (!connection) {
-      return res.status(404).json({ error: 'Connection not found' });
+    let connection;
+    const connectionId = req.params.id;
+    
+    // Check if it's a local connection
+    if (connectionId.startsWith('local_')) {
+      // For local connections, we need the connection details in the request body
+      if (!req.body || !req.body.connectionDetails) {
+        return res.status(400).json({ error: 'Connection details are required for local connections' });
+      }
+      
+      connection = req.body.connectionDetails;
+      // Store the connection details for future use
+      global.localConnections[connectionId] = connection;
+    } else {
+      // For database connections, fetch from MongoDB
+      connection = await Connection.findById(connectionId);
+      if (!connection) {
+        return res.status(404).json({ error: 'Connection not found' });
+      }
     }
     
     let client;
     
     if (connection.authType === 'AWS') {
       // AWS IAM authentication setup here
-      // Similar to test connection
       const url = new URL(connection.uri);
       const request = {
         host: url.hostname,
@@ -187,20 +226,82 @@ router.post('/connect/:id', async (req, res) => {
     await client.connect();
     
     // Store the active connection in the global object
-    global.activeConnections[req.params.id] = client;
+    global.activeConnections[connectionId] = client;
     
-    // Update last used timestamp
-    connection.lastUsed = new Date();
-    await connection.save();
+    // Update last used timestamp (only for DB connections)
+    if (!connectionId.startsWith('local_')) {
+      connection.lastUsed = new Date();
+      await connection.save();
+    }
     
     // Get the list of databases
     const admin = client.db().admin();
     const dbs = await admin.listDatabases();
     
-    res.json({ success: true, databases: dbs.databases.map(db => db.name) });
+    // Generate a session token for this connection
+    const sessionToken = generateSessionToken();
+    global.sessionTokens[sessionToken] = {
+      connectionId: connectionId,
+      createdAt: new Date()
+    };
+    
+    // Don't send sensitive information back to the client
+    res.json({ 
+      success: true, 
+      sessionToken: sessionToken,
+      databases: dbs.databases.map(db => db.name) 
+    });
   } catch (error) {
+    console.error("Connection error:", error);
     res.status(500).json({ error: error.message });
   }
+});
+
+// Validate a session token
+router.post('/validate-token', (req, res) => {
+  const { sessionToken } = req.body;
+  
+  if (!sessionToken || !global.sessionTokens[sessionToken]) {
+    return res.status(401).json({ valid: false, error: 'Invalid or expired session token' });
+  }
+  
+  const { connectionId } = global.sessionTokens[sessionToken];
+  
+  if (!global.activeConnections[connectionId]) {
+    // Token exists but connection is gone
+    delete global.sessionTokens[sessionToken];
+    return res.status(401).json({ valid: false, error: 'Connection no longer active' });
+  }
+  
+  // Session token is valid
+  res.json({ valid: true, connectionId });
+});
+
+// Disconnect and invalidate session token
+router.post('/disconnect', (req, res) => {
+  const { sessionToken } = req.body;
+  
+  if (!sessionToken || !global.sessionTokens[sessionToken]) {
+    return res.status(400).json({ error: 'Invalid session token' });
+  }
+  
+  const { connectionId } = global.sessionTokens[sessionToken];
+  
+  // Clean up session token
+  delete global.sessionTokens[sessionToken];
+  
+  // Check if this is the last session token for this connection
+  const hasMoreSessions = Object.values(global.sessionTokens).some(
+    session => session.connectionId === connectionId
+  );
+  
+  // Only close the connection if there are no more active sessions using it
+  if (!hasMoreSessions && global.activeConnections[connectionId]) {
+    // We won't actually close the connection immediately to allow for reconnection
+    // Just note it here for the response
+  }
+  
+  res.json({ success: true, message: 'Disconnected successfully' });
 });
 
 module.exports = router;

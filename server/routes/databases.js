@@ -4,6 +4,69 @@ const aws4 = require('aws4');
 const { URL } = require('url');
 const router = express.Router();
 
+// Middleware to validate session token and get connection
+const validateSession = (req, res, next) => {
+  const { sessionToken } = req.body;
+  
+  if (!sessionToken || !global.sessionTokens[sessionToken]) {
+    return res.status(401).json({ error: 'Invalid or expired session token' });
+  }
+  
+  const { connectionId } = global.sessionTokens[sessionToken];
+  
+  if (!global.activeConnections[connectionId]) {
+    // Token exists but connection is gone
+    delete global.sessionTokens[sessionToken];
+    return res.status(401).json({ error: 'Connection no longer active' });
+  }
+  
+  // Add connectionId to request for use in route handlers
+  req.connectionId = connectionId;
+  next();
+};
+
+// New endpoint: List databases using session token
+router.post('/list-by-token', validateSession, async (req, res) => {
+  try {
+    const { connectionId } = req;
+    const client = global.activeConnections[connectionId];
+    
+    // Get the list of databases
+    const admin = client.db().admin();
+    const dbs = await admin.listDatabases();
+    
+    res.json({ success: true, databases: dbs.databases.map(db => db.name) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// New endpoint: List collections using session token
+router.post('/collections-by-token', validateSession, async (req, res) => {
+  try {
+    const { connectionId } = req;
+    const { database } = req.body;
+    
+    if (!database) {
+      return res.status(400).json({ error: 'Database name is required' });
+    }
+    
+    const client = global.activeConnections[connectionId];
+    
+    // Get the list of collections
+    const db = client.db(database);
+    const collections = await db.listCollections().toArray();
+    
+    // Map collection names and send response
+    const collectionNames = collections.map(col => col.name);
+    
+    res.json(collectionNames);
+  } catch (error) {
+    console.error("Error listing collections:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // New endpoint: List databases for a connection passed in the request body
 router.post('/list', async (req, res) => {
   try {

@@ -1,13 +1,22 @@
 import React, { useContext, useState, useRef } from 'react';
-import { Box, Button, Paper, TextField, Typography, Tooltip, ButtonGroup } from '@mui/material';
+import { Box, Button, Paper, TextField, Typography, Tooltip, ButtonGroup, FormControl, Select } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
-const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
-  const { executeQuery, activeConnection, activeDatabase, activeCollection } = useContext(ConnectionContext);
+const QueryEditor = ({ 
+  query, 
+  onUpdateQuery, 
+  onQueryResult, 
+  connectionId,
+  database
+}) => {
+  const { executeQuery, connections } = useContext(ConnectionContext);
   const [error, setError] = useState(null);
   const editorRef = useRef(null);
+
+  // Find the connection object based on connectionId
+  const connection = connections.find(conn => conn._id === connectionId);
 
   // Example queries for different types that users can reference
   const getExampleQueries = () => {
@@ -110,7 +119,7 @@ const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
       }
       
       return {
-        collection: collection !== 'collection' ? collection : activeCollection,
+        collection,
         type: apiOperation,
         data: queryData,
         options: operation.endsWith('Many') ? { many: true } : {}
@@ -201,22 +210,23 @@ const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
     try {
       const parsedQuery = parseMongoQuery(queryString);
       
-      // Use the parsed collection or fall back to active collection
-      const targetCollection = parsedQuery.collection || activeCollection;
-      if (!targetCollection) {
-        throw new Error('No collection specified and no active collection selected');
-      }
-      
       // Execute the query with the specified operation type
-      const result = await executeQuery(parsedQuery.data, parsedQuery.type, {
-        ...parsedQuery.options,
-        collection: targetCollection
-      });
+      // We need to pass the tab-specific connection and database information
+      const result = await executeQuery(
+        parsedQuery.data,
+        parsedQuery.type, 
+        {
+          ...parsedQuery.options,
+          collection: parsedQuery.collection,
+          connectionId: connectionId,
+          database: database
+        }
+      );
       
       return {
         query: queryString,
         type: parsedQuery.type,
-        collection: targetCollection,
+        collection: parsedQuery.collection,
         ...(result.success 
           ? { result: result.data, success: true } 
           : { error: result.message, success: false })
@@ -232,7 +242,7 @@ const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
 
   // Run the selected query or the one where the cursor is
   const handleRunCurrentQuery = async () => {
-    if (!activeConnection || !activeDatabase) {
+    if (!connection || !database) {
       setError('Please connect to a database first');
       return;
     }
@@ -299,7 +309,7 @@ const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
 
   // Run all queries in the editor
   const handleRunAllQueries = async () => {
-    if (!activeConnection || !activeDatabase) {
+    if (!connection || !database) {
       setError('Please connect to a database first');
       return;
     }
@@ -371,7 +381,8 @@ const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
         Use standard MongoDB shell syntax. Separate multiple queries with semicolons (;).
         Example: db.users.find({'{name: "John"}'})<br/>
-        Current database: <strong>{activeDatabase || 'None'}</strong> | Current collection: <strong>{activeCollection || 'None'}</strong>
+        Connection: <strong>{connection?.name || 'None'}</strong> | 
+        Database: <strong>{database || 'None'}</strong>
       </Typography>
       
       <Paper variant="outlined" sx={{ mb: 2 }}>

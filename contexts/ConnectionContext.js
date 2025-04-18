@@ -4,18 +4,24 @@ import axios from 'axios';
 // Define the API base URL to point to the backend server
 const API_BASE_URL = 'http://localhost:5001';
 
-// Define a key for localStorage
+// Define keys for localStorage
 const CONNECTIONS_STORAGE_KEY = 'mongo-reader-connections';
+const SESSION_TOKEN_STORAGE_KEY = 'mongo-reader-session-token';
+
+// Create a custom event for connection status changes
+export const CONNECTION_EVENTS = {
+  DISCONNECT: 'connection-disconnect'
+};
 
 const ConnectionContext = createContext();
 
 const ConnectionProvider = ({ children }) => {
   const [connections, setConnections] = useState([]);
   const [activeConnection, setActiveConnection] = useState(null);
+  const [sessionToken, setSessionToken] = useState(null);
   const [databases, setDatabases] = useState([]);
   const [activeDatabase, setActiveDatabase] = useState(null);
   const [collections, setCollections] = useState([]);
-  const [activeCollection, setActiveCollection] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [serverStatus, setServerStatus] = useState('checking');
@@ -23,11 +29,72 @@ const ConnectionProvider = ({ children }) => {
   // Check if the server is running when the component mounts
   useEffect(() => {
     checkServerStatus();
-    // Load connections from localStorage on mount
+    // Load connections from localStorage on mount (only for display in sidebar)
     loadConnectionsFromLocalStorage();
+    // Try to restore session if exists
+    restoreSessionFromStorage();
   }, []);
 
-  // Load connections from localStorage
+  // Restore session from localStorage if available
+  const restoreSessionFromStorage = async () => {
+    try {
+      const storedToken = localStorage.getItem(SESSION_TOKEN_STORAGE_KEY);
+      if (storedToken) {
+        const tokenData = JSON.parse(storedToken);
+        
+        // Validate the token with the server
+        const result = await validateSessionToken(tokenData.sessionToken);
+        if (result.success) {
+          setSessionToken(tokenData.sessionToken);
+          
+          // Find the connection in local storage by ID
+          const storedConnections = localStorage.getItem(CONNECTIONS_STORAGE_KEY);
+          if (storedConnections) {
+            const parsedConnections = JSON.parse(storedConnections);
+            const connection = parsedConnections.find(conn => conn._id === tokenData.connectionId);
+            if (connection) {
+              setActiveConnection({
+                _id: connection._id,
+                name: connection.name
+              });
+              
+              // Fetch databases using the session token
+              fetchDatabasesByToken(tokenData.sessionToken);
+              
+              // Restore active database if available
+              if (tokenData.database) {
+                setActiveDatabase(tokenData.database);
+              }
+            }
+          }
+        } else {
+          // Invalid token, clear it
+          localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
+        }
+      }
+    } catch (err) {
+      console.error('Error restoring session:', err);
+      localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
+    }
+  };
+
+  // Validate a session token with the server
+  const validateSessionToken = async (token) => {
+    if (!token || serverStatus !== 'connected') {
+      return { success: false };
+    }
+    
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/connections/validate-token`, {
+        sessionToken: token
+      });
+      return { success: true, connectionId: response.data.connectionId };
+    } catch (err) {
+      return { success: false, message: err.response?.data?.error || err.message };
+    }
+  };
+
+  // Load connections from localStorage (only for display in sidebar)
   const loadConnectionsFromLocalStorage = () => {
     try {
       const storedConnections = localStorage.getItem(CONNECTIONS_STORAGE_KEY);
@@ -52,32 +119,14 @@ const ConnectionProvider = ({ children }) => {
   const checkServerStatus = async () => {
     try {
       setServerStatus('checking');
-      // First try the health endpoint, which should be the fastest response
       await axios.get(`${API_BASE_URL}/api/health`, { timeout: 3000 });
       setServerStatus('connected');
-      // We don't need to fetch connections from server anymore
-      // fetchConnections();
     } catch (err) {
       console.error('Server connection error:', err);
       setServerStatus('disconnected');
       setError('Cannot connect to the server. Please make sure the server is running.');
     }
   };
-
-  // Fetch saved connections (not used anymore, but kept for reference)
-  // const fetchConnections = async () => {
-  //   if (serverStatus !== 'connected') return;
-  //   
-  //   setLoading(true);
-  //   try {
-  //     const response = await axios.get(`${API_BASE_URL}/api/connections`);
-  //     setConnections(response.data);
-  //     setLoading(false);
-  //   } catch (err) {
-  //     setError('Failed to fetch connections');
-  //     setLoading(false);
-  //   }
-  // };
 
   // Retry connecting to the server
   const retryConnection = () => {
@@ -101,11 +150,6 @@ const ConnectionProvider = ({ children }) => {
   };
 
   const saveConnection = async (connectionData) => {
-    // Don't require server connection for saving to localStorage
-    // if (serverStatus !== 'connected') {
-    //   return { success: false, message: 'Server is not running. Please start the server first.' };
-    // }
-    
     setLoading(true);
     try {
       // Generate a unique ID for the connection
@@ -182,13 +226,18 @@ const ConnectionProvider = ({ children }) => {
       setConnections(updatedConnections);
       saveConnectionsToLocalStorage(updatedConnections);
       
-      // If this was the active connection, clear it
+      // If this was the active connection, clear it and the session
       if (activeConnection && activeConnection._id === connectionId) {
-        setActiveConnection(null);
-        setDatabases([]);
-        setActiveDatabase(null);
-        setCollections([]);
-        setActiveCollection(null);
+        if (sessionToken) {
+          // Properly disconnect from server and invalidate session
+          await disconnectDatabase();
+        } else {
+          // Just clear local state
+          setActiveConnection(null);
+          setDatabases([]);
+          setActiveDatabase(null);
+          setCollections([]);
+        }
       }
       
       setLoading(false);
@@ -200,9 +249,33 @@ const ConnectionProvider = ({ children }) => {
     }
   };
 
+  // Fetch databases using session token
+  const fetchDatabasesByToken = async (token) => {
+    if (!token || serverStatus !== 'connected') return;
+    
+    setLoading(true);
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/databases/list-by-token`, {
+        sessionToken: token
+      });
+      
+      setDatabases(response.data.databases || []);
+      setLoading(false);
+    } catch (err) {
+      console.error('Error fetching databases:', err);
+      setError('Failed to fetch databases: ' + err.message);
+      setLoading(false);
+    }
+  };
+
   const connectToDatabase = async (connectionId) => {
     if (serverStatus !== 'connected') {
       return { success: false, message: 'Server is not running. Please start the server first.' };
+    }
+    
+    // If we're already connected with a session token, disconnect first
+    if (sessionToken) {
+      await disconnectDatabase();
     }
     
     setLoading(true);
@@ -212,32 +285,48 @@ const ConnectionProvider = ({ children }) => {
         throw new Error(`Connection with ID ${connectionId} not found`);
       }
       
-      // Pass the entire connection data to the server
-      const response = await axios.post(`${API_BASE_URL}/api/connections/test`, {
-        uri: connection.uri,
-        authType: connection.authType,
-        username: connection.username,
-        password: connection.password,
-        awsAccessKey: connection.awsAccessKey,
-        awsSecretKey: connection.awsSecretKey,
-        awsSessionToken: connection.awsSessionToken,
-        awsRegion: connection.awsRegion
+      // Connect to the server and get a session token
+      // For local connections, we need to send the connection details
+      let response;
+      if (connectionId.startsWith('local_')) {
+        response = await axios.post(`${API_BASE_URL}/api/connections/connect/${connectionId}`, {
+          connectionDetails: {
+            uri: connection.uri,
+            authType: connection.authType,
+            username: connection.username,
+            password: connection.password,
+            awsAccessKey: connection.awsAccessKey,
+            awsSecretKey: connection.awsSecretKey,
+            awsSessionToken: connection.awsSessionToken,
+            awsRegion: connection.awsRegion
+          }
+        });
+      } else {
+        response = await axios.post(`${API_BASE_URL}/api/connections/connect/${connectionId}`);
+      }
+      
+      if (!response.data.sessionToken) {
+        throw new Error('Server did not return a session token');
+      }
+      
+      // Store the session token
+      const newToken = response.data.sessionToken;
+      setSessionToken(newToken);
+      
+      // Save session info to localStorage for persistence
+      localStorage.setItem(SESSION_TOKEN_STORAGE_KEY, JSON.stringify({
+        sessionToken: newToken,
+        connectionId: connection._id,
+        timestamp: new Date().toISOString()
+      }));
+      
+      // Update state with minimal connection info (no credentials)
+      setActiveConnection({
+        _id: connection._id,
+        name: connection.name
       });
       
-      // If test was successful, now connect and get databases
-      const dbResponse = await axios.post(`${API_BASE_URL}/api/databases/list`, {
-        uri: connection.uri,
-        authType: connection.authType,
-        username: connection.username,
-        password: connection.password,
-        awsAccessKey: connection.awsAccessKey,
-        awsSecretKey: connection.awsSecretKey,
-        awsSessionToken: connection.awsSessionToken,
-        awsRegion: connection.awsRegion
-      });
-      
-      setActiveConnection(connection);
-      setDatabases(dbResponse.data.databases || []);
+      setDatabases(response.data.databases || []);
       
       // Update last used timestamp locally
       const updatedConnections = connections.map(conn => {
@@ -261,36 +350,33 @@ const ConnectionProvider = ({ children }) => {
 
   // Fetch collections when active database changes
   useEffect(() => {
-    if (activeConnection && activeDatabase) {
+    if (sessionToken && activeDatabase) {
       console.log(`Fetching collections for database: ${activeDatabase}`);
-      fetchCollections(activeConnection._id, activeDatabase);
+      fetchCollectionsByToken();
+      
+      // Update session storage with active database
+      const storedSession = localStorage.getItem(SESSION_TOKEN_STORAGE_KEY);
+      if (storedSession) {
+        const sessionData = JSON.parse(storedSession);
+        localStorage.setItem(SESSION_TOKEN_STORAGE_KEY, JSON.stringify({
+          ...sessionData,
+          database: activeDatabase
+        }));
+      }
     } else {
       // Clear collections when no database is selected
       setCollections([]);
     }
-  }, [activeConnection, activeDatabase]);
+  }, [sessionToken, activeDatabase]);
 
-  const fetchCollections = async (connectionId, dbName) => {
-    if (serverStatus !== 'connected') return;
+  const fetchCollectionsByToken = async () => {
+    if (!sessionToken || !activeDatabase || serverStatus !== 'connected') return;
     
     setLoading(true);
     try {
-      const connection = connections.find(conn => conn._id === connectionId);
-      if (!connection) {
-        throw new Error(`Connection with ID ${connectionId} not found`);
-      }
-      
-      // Use the API to fetch collections, passing the connection details directly
-      const response = await axios.post(`${API_BASE_URL}/api/databases/collections`, {
-        uri: connection.uri,
-        authType: connection.authType,
-        username: connection.username,
-        password: connection.password,
-        awsAccessKey: connection.awsAccessKey,
-        awsSecretKey: connection.awsSecretKey,
-        awsSessionToken: connection.awsSessionToken,
-        awsRegion: connection.awsRegion,
-        database: dbName
+      const response = await axios.post(`${API_BASE_URL}/api/databases/collections-by-token`, {
+        sessionToken,
+        database: activeDatabase
       });
       
       console.log("Collections fetched:", response.data);
@@ -304,50 +390,91 @@ const ConnectionProvider = ({ children }) => {
     }
   };
 
+  // Legacy function to maintain API compatibility with existing components
+  const setActiveCollection = () => {
+    console.warn('setActiveCollection is deprecated - collections are now managed per-tab');
+  };
+
   const executeQuery = async (queryData, type, options = {}) => {
     if (serverStatus !== 'connected') {
       return { success: false, message: 'Server is not running. Please start the server first.' };
     }
     
-    if (!activeConnection || !activeDatabase) {
-      return { success: false, message: 'No active connection or database selected' };
-    }
-    
-    // Allow specifying a different collection than the active one
-    const targetCollection = options.collection || activeCollection;
-    
-    if (!targetCollection) {
-      return { success: false, message: 'No collection specified or selected' };
-    }
-    
-    setLoading(true);
-    try {
-      // Pass connection details directly to the query endpoint
-      const response = await axios.post(
-        `${API_BASE_URL}/api/queries/execute`,
-        { 
-          connectionDetails: {
-            uri: activeConnection.uri,
-            authType: activeConnection.authType,
-            username: activeConnection.username,
-            password: activeConnection.password,
-            awsAccessKey: activeConnection.awsAccessKey,
-            awsSecretKey: activeConnection.awsSecretKey,
-            awsSessionToken: activeConnection.awsSessionToken,
-            awsRegion: activeConnection.awsRegion
-          },
-          database: activeDatabase,
-          collection: targetCollection,
-          query: queryData,
-          type,
-          options
-        }
-      );
-      setLoading(false);
-      return { success: true, data: response.data };
-    } catch (err) {
-      setLoading(false);
-      return { success: false, message: err.response?.data?.error || err.message };
+    // Check if we have a session token to use
+    if (sessionToken) {
+      setLoading(true);
+      try {
+        // Use session token for the query
+        const response = await axios.post(
+          `${API_BASE_URL}/api/queries/execute-by-token`,
+          { 
+            sessionToken,
+            database: options.database || activeDatabase,
+            collection: options.collection,
+            query: queryData,
+            type,
+            options
+          }
+        );
+        setLoading(false);
+        return { success: true, data: response.data };
+      } catch (err) {
+        setLoading(false);
+        return { success: false, message: err.response?.data?.error || err.message };
+      }
+    } else {
+      // Fall back to the old method if no session token
+      const connectionId = options.connectionId || (activeConnection && activeConnection._id);
+      const dbName = options.database || activeDatabase;
+      const targetCollection = options.collection;
+      
+      if (!connectionId) {
+        return { success: false, message: 'No connection specified for this query' };
+      }
+      
+      if (!dbName) {
+        return { success: false, message: 'No database specified for this query' };
+      }
+      
+      if (!targetCollection) {
+        return { success: false, message: 'No collection specified for this query' };
+      }
+      
+      // Find the connection details
+      const connection = connections.find(conn => conn._id === connectionId);
+      if (!connection) {
+        return { success: false, message: `Connection with ID ${connectionId} not found` };
+      }
+      
+      setLoading(true);
+      try {
+        // Pass connection details directly to the query endpoint
+        const response = await axios.post(
+          `${API_BASE_URL}/api/queries/execute`,
+          { 
+            connectionDetails: {
+              uri: connection.uri,
+              authType: connection.authType,
+              username: connection.username,
+              password: connection.password,
+              awsAccessKey: connection.awsAccessKey,
+              awsSecretKey: connection.awsSecretKey,
+              awsSessionToken: connection.awsSessionToken,
+              awsRegion: connection.awsRegion
+            },
+            database: dbName,
+            collection: targetCollection,
+            query: queryData,
+            type,
+            options
+          }
+        );
+        setLoading(false);
+        return { success: true, data: response.data };
+      } catch (err) {
+        setLoading(false);
+        return { success: false, message: err.response?.data?.error || err.message };
+      }
     }
   };
 
@@ -358,15 +485,58 @@ const ConnectionProvider = ({ children }) => {
     return { success: true };
   };
 
+  // Disconnect from the current database
+  const disconnectDatabase = async () => {
+    if (!activeConnection) {
+      return { success: false, message: 'No active connection to disconnect' };
+    }
+    
+    const connectionId = activeConnection._id;
+    
+    setLoading(true);
+    try {
+      // If we have a session token, tell the server to clean up
+      if (sessionToken && serverStatus === 'connected') {
+        await axios.post(`${API_BASE_URL}/api/connections/disconnect`, {
+          sessionToken
+        });
+      }
+      
+      // Remove session token from localStorage
+      localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
+      
+      // Clear all connection-related state
+      setSessionToken(null);
+      setActiveConnection(null);
+      setDatabases([]);
+      setActiveDatabase(null);
+      setCollections([]);
+      
+      // Dispatch a custom event to notify components (like TabPanel) that
+      // the connection has been disconnected
+      const event = new CustomEvent(CONNECTION_EVENTS.DISCONNECT, {
+        detail: { connectionId }
+      });
+      window.dispatchEvent(event);
+      
+      setLoading(false);
+      return { success: true };
+    } catch (err) {
+      setError('Failed to disconnect: ' + err.message);
+      setLoading(false);
+      return { success: false, message: err.message };
+    }
+  };
+
   return (
     <ConnectionContext.Provider
       value={{
         connections,
         activeConnection,
+        sessionToken,
         databases,
         activeDatabase,
         collections,
-        activeCollection,
         loading,
         error,
         serverStatus,
@@ -376,8 +546,9 @@ const ConnectionProvider = ({ children }) => {
         updateConnection,
         deleteConnection,
         connectToDatabase,
+        disconnectDatabase,
         setActiveDatabase,
-        setActiveCollection,
+        setActiveCollection, // Keep for backward compatibility
         executeQuery,
         retryConnection
       }}
