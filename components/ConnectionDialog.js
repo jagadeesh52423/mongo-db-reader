@@ -1,4 +1,4 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import {
   Button,
   Dialog,
@@ -16,8 +16,8 @@ import {
 } from '@mui/material';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
-const ConnectionDialog = ({ open, handleClose }) => {
-  const { testConnection, saveConnection, loading } = useContext(ConnectionContext);
+const ConnectionDialog = ({ open, handleClose, initialData = null, isEditing = false }) => {
+  const { testConnection, saveConnection, updateConnection, loading } = useContext(ConnectionContext);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -32,6 +32,23 @@ const ConnectionDialog = ({ open, handleClose }) => {
   });
   
   const [feedback, setFeedback] = useState({ type: '', message: '' });
+
+  // Initialize form with data when editing
+  useEffect(() => {
+    if (initialData && isEditing) {
+      setFormData({
+        name: initialData.name || '',
+        uri: initialData.uri || '',
+        authType: initialData.authType || 'None',
+        username: initialData.username || '',
+        password: initialData.password || '',
+        awsAccessKey: initialData.awsAccessKey || '',
+        awsSecretKey: initialData.awsSecretKey || '',
+        awsSessionToken: initialData.awsSessionToken || '',
+        awsRegion: initialData.awsRegion || '',
+      });
+    }
+  }, [initialData, isEditing]);
   
   const handleChange = (e) => {
     setFormData({
@@ -56,23 +73,37 @@ const ConnectionDialog = ({ open, handleClose }) => {
       return;
     }
     
-    const result = await saveConnection(formData);
+    let result;
+    
+    if (isEditing && initialData) {
+      // Update existing connection
+      result = await updateConnection(initialData._id, formData);
+    } else {
+      // Create new connection
+      result = await saveConnection(formData);
+    }
     
     if (result.success) {
-      setFeedback({ type: 'success', message: 'Connection saved successfully!' });
+      setFeedback({ 
+        type: 'success', 
+        message: isEditing ? 'Connection updated successfully!' : 'Connection saved successfully!' 
+      });
       setTimeout(() => {
         handleClose();
-        setFormData({
-          name: '',
-          uri: '',
-          authType: 'None',
-          username: '',
-          password: '',
-          awsAccessKey: '',
-          awsSecretKey: '',
-          awsSessionToken: '',
-          awsRegion: '',
-        });
+        // Only reset form if not editing
+        if (!isEditing) {
+          setFormData({
+            name: '',
+            uri: '',
+            authType: 'None',
+            username: '',
+            password: '',
+            awsAccessKey: '',
+            awsSecretKey: '',
+            awsSessionToken: '',
+            awsRegion: '',
+          });
+        }
         setFeedback({ type: '', message: '' });
       }, 1000);
     } else {
@@ -82,7 +113,9 @@ const ConnectionDialog = ({ open, handleClose }) => {
   
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
-      <DialogTitle>Add New MongoDB Connection</DialogTitle>
+      <DialogTitle>
+        {isEditing ? `Edit Connection: ${initialData?.name}` : 'Add New MongoDB Connection'}
+      </DialogTitle>
       <DialogContent>
         {feedback.message && (
           <Alert severity={feedback.type} sx={{ mb: 2 }}>
@@ -207,7 +240,7 @@ const ConnectionDialog = ({ open, handleClose }) => {
           {loading && <CircularProgress size={24} sx={{ ml: 1 }} />}
         </Button>
         <Button onClick={handleSaveConnection} color="primary" disabled={loading}>
-          Save Connection
+          {isEditing ? 'Update Connection' : 'Save Connection'}
           {loading && <CircularProgress size={24} sx={{ ml: 1 }} />}
         </Button>
       </DialogActions>

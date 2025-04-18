@@ -131,6 +131,75 @@ const ConnectionProvider = ({ children }) => {
     }
   };
 
+  // Update an existing connection
+  const updateConnection = async (connectionId, updatedData) => {
+    setLoading(true);
+    try {
+      // For server connections (if they exist)
+      if (serverStatus === 'connected' && !connectionId.startsWith('local_')) {
+        const response = await axios.put(`${API_BASE_URL}/api/connections/${connectionId}`, updatedData);
+        if (!response.data) {
+          throw new Error('Failed to update connection');
+        }
+      }
+      
+      // Update in local state and localStorage
+      const updatedConnections = connections.map(conn => {
+        if (conn._id === connectionId) {
+          return { ...conn, ...updatedData, updatedAt: new Date().toISOString() };
+        }
+        return conn;
+      });
+      
+      setConnections(updatedConnections);
+      saveConnectionsToLocalStorage(updatedConnections);
+      
+      // If this was the active connection, update it
+      if (activeConnection && activeConnection._id === connectionId) {
+        setActiveConnection(prev => ({ ...prev, ...updatedData }));
+      }
+      
+      setLoading(false);
+      return { success: true };
+    } catch (err) {
+      setError('Failed to update connection: ' + err.message);
+      setLoading(false);
+      return { success: false, message: err.message };
+    }
+  };
+
+  // Delete a connection
+  const deleteConnection = async (connectionId) => {
+    setLoading(true);
+    try {
+      // For server connections (if they exist)
+      if (serverStatus === 'connected' && !connectionId.startsWith('local_')) {
+        await axios.delete(`${API_BASE_URL}/api/connections/${connectionId}`);
+      }
+      
+      // Remove from local state
+      const updatedConnections = connections.filter(conn => conn._id !== connectionId);
+      setConnections(updatedConnections);
+      saveConnectionsToLocalStorage(updatedConnections);
+      
+      // If this was the active connection, clear it
+      if (activeConnection && activeConnection._id === connectionId) {
+        setActiveConnection(null);
+        setDatabases([]);
+        setActiveDatabase(null);
+        setCollections([]);
+        setActiveCollection(null);
+      }
+      
+      setLoading(false);
+      return { success: true };
+    } catch (err) {
+      setError('Failed to delete connection: ' + err.message);
+      setLoading(false);
+      return { success: false, message: err.message };
+    }
+  };
+
   const connectToDatabase = async (connectionId) => {
     if (serverStatus !== 'connected') {
       return { success: false, message: 'Server is not running. Please start the server first.' };
@@ -296,6 +365,8 @@ const ConnectionProvider = ({ children }) => {
         fetchConnections,
         testConnection,
         saveConnection,
+        updateConnection,
+        deleteConnection,
         connectToDatabase,
         setActiveDatabase,
         setActiveCollection,

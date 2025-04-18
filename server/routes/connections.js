@@ -27,6 +27,47 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Update an existing connection
+router.put('/:id', async (req, res) => {
+  try {
+    const connection = await Connection.findByIdAndUpdate(
+      req.params.id, 
+      req.body,
+      { new: true, runValidators: true }
+    ).select('-password -awsSecretKey -awsSessionToken');
+    
+    if (!connection) {
+      return res.status(404).json({ error: 'Connection not found' });
+    }
+    
+    res.json(connection);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+// Delete a connection
+router.delete('/:id', async (req, res) => {
+  try {
+    // Check if the connection is active
+    if (global.activeConnections[req.params.id]) {
+      // Close the connection first
+      await global.activeConnections[req.params.id].close();
+      delete global.activeConnections[req.params.id];
+    }
+    
+    const connection = await Connection.findByIdAndDelete(req.params.id);
+    
+    if (!connection) {
+      return res.status(404).json({ error: 'Connection not found' });
+    }
+    
+    res.json({ message: 'Connection deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Test connection
 router.post('/test', async (req, res) => {
   const { uri, authType, username, password, awsAccessKey, awsSecretKey, awsSessionToken, awsRegion } = req.body;

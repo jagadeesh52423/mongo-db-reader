@@ -1,4 +1,4 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState } from 'react';
 import {
   Drawer,
   List,
@@ -14,14 +14,42 @@ import {
 } from '@mui/material';
 import StorageIcon from '@mui/icons-material/Storage';
 import { ConnectionContext } from '../contexts/ConnectionContext';
+import ConnectionContextMenu from './ConnectionContextMenu';
+import ConnectionDialog from './ConnectionDialog';
 
 const drawerWidth = 240;
 
 const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
   const { connections, connectToDatabase, activeConnection, loading } = useContext(ConnectionContext);
+  const [contextMenu, setContextMenu] = useState({ anchorEl: null, connection: null });
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [connectionToEdit, setConnectionToEdit] = useState(null);
 
   const handleConnectionClick = async (connectionId) => {
     await connectToDatabase(connectionId);
+  };
+
+  const handleContextMenu = (event, connection) => {
+    event.preventDefault();
+    // Set the anchorEl directly to the currentTarget element
+    setContextMenu({
+      anchorEl: event.currentTarget,
+      connection
+    });
+  };
+
+  const handleCloseContextMenu = () => {
+    setContextMenu({ anchorEl: null, connection: null });
+  };
+
+  const handleEditConnection = (connection) => {
+    setConnectionToEdit(connection);
+    setEditDialogOpen(true);
+  };
+
+  const handleCloseEditDialog = () => {
+    setEditDialogOpen(false);
+    setConnectionToEdit(null);
   };
 
   const drawer = (
@@ -43,7 +71,11 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
             </ListItem>
           ) : (
             connections.map((connection) => (
-              <ListItem key={connection._id} disablePadding>
+              <ListItem 
+                key={connection._id} 
+                disablePadding
+                onContextMenu={(e) => handleContextMenu(e, connection)}
+              >
                 <ListItemButton 
                   onClick={() => handleConnectionClick(connection._id)}
                   selected={activeConnection && activeConnection._id === connection._id}
@@ -57,6 +89,25 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
             ))
           )}
         </List>
+      )}
+
+      {/* Context Menu */}
+      <ConnectionContextMenu
+        connection={contextMenu.connection}
+        anchorEl={contextMenu.anchorEl}
+        open={Boolean(contextMenu.anchorEl)}
+        handleClose={handleCloseContextMenu}
+        handleEdit={handleEditConnection}
+      />
+
+      {/* Edit Dialog */}
+      {connectionToEdit && (
+        <ConnectionDialog
+          open={editDialogOpen}
+          handleClose={handleCloseEditDialog}
+          initialData={connectionToEdit}
+          isEditing={true}
+        />
       )}
     </div>
   );
