@@ -58,13 +58,23 @@ const TabPanel = () => {
               label={
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
                   {tab.title}
-                  <IconButton
-                    size="small"
+                  {/* Replace IconButton with a clickable Box to avoid button nesting */}
+                  <Box
+                    component="span"
                     onClick={(e) => handleCloseTab(e, index)}
-                    sx={{ ml: 1 }}
+                    sx={{ 
+                      ml: 1,
+                      display: 'flex',
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      color: 'text.secondary',
+                      '&:hover': {
+                        color: 'error.main'
+                      }
+                    }}
                   >
                     <CloseIcon fontSize="small" />
-                  </IconButton>
+                  </Box>
                 </Box>
               }
             />

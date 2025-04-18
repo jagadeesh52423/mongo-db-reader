@@ -26,7 +26,7 @@ const ServerStatusBar = () => {
       >
         <Typography variant="body1">
           {serverStatus === 'checking' ? 'Checking server connection...' : 
-           'Cannot connect to the MongoDB server. Please make sure the server is running at localhost:5000.'}
+           'Cannot connect to the MongoDB server. Please make sure the server is running at localhost:5001.'}
         </Typography>
         {error && (
           <Typography variant="body2" sx={{ mt: 1 }}>

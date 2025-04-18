@@ -6,7 +6,7 @@ const serverProcess = spawn('node', [path.join(__dirname, 'server', 'server.js')
   stdio: 'inherit' // This will pipe the server's stdout/stderr to the parent process
 });
 
-console.log('MongoDB server started on port 5000');
+console.log('MongoDB server started on port 5001');
 
 // Handle server process termination
 serverProcess.on('close', (code) => {

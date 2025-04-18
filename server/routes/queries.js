@@ -1,5 +1,123 @@
 const express = require('express');
+const { MongoClient } = require('mongodb');
+const aws4 = require('aws4');
+const { URL } = require('url');
 const router = express.Router();
+
+// New endpoint: Execute a query with connection details in the request body
+router.post('/execute', async (req, res) => {
+  try {
+    const { connectionDetails, database, collection, query, type, options = {} } = req.body;
+    const { uri, authType, username, password, awsAccessKey, awsSecretKey, awsSessionToken, awsRegion } = connectionDetails;
+    
+    // Create a MongoDB client based on the provided connection details
+    let client;
+    
+    if (authType === 'AWS') {
+      // AWS IAM authentication
+      const url = new URL(uri);
+      const request = {
+        host: url.hostname,
+        path: url.pathname,
+        method: 'GET',
+        service: 'mongodb'
+      };
+      
+      const credentials = {
+        accessKeyId: awsAccessKey,
+        secretAccessKey: awsSecretKey,
+        sessionToken: awsSessionToken,
+        region: awsRegion
+      };
+      
+      aws4.sign(request, credentials);
+      
+      client = new MongoClient(uri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        authMechanism: 'MONGODB-AWS',
+        authSource: '$external'
+      });
+    } else if (authType === 'Basic' || authType === 'Legacy') {
+      // SCRAM-SHA-256 or SCRAM-SHA-1 authentication
+      const authMechanism = authType === 'Basic' ? 'SCRAM-SHA-256' : 'SCRAM-SHA-1';
+      client = new MongoClient(uri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        auth: {
+          username,
+          password
+        },
+        authMechanism
+      });
+    } else {
+      // No authentication
+      client = new MongoClient(uri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true
+      });
+    }
+    
+    await client.connect();
+    
+    // Execute the query
+    const db = client.db(database);
+    const coll = db.collection(collection);
+    
+    let result;
+    
+    switch (type) {
+      case 'find':
+        const findCursor = coll.find(query, options);
+        result = await findCursor.toArray();
+        break;
+      case 'findOne':
+        result = await coll.findOne(query, options);
+        break;
+      case 'count':
+        result = await coll.countDocuments(query, options);
+        break;
+      case 'aggregate':
+        const aggCursor = coll.aggregate(query, options);
+        result = await aggCursor.toArray();
+        break;
+      case 'distinct':
+        result = await coll.distinct(query.field, query.filter || {}, options);
+        break;
+      case 'insert':
+        if (Array.isArray(query)) {
+          result = await coll.insertMany(query, options);
+        } else {
+          result = await coll.insertOne(query, options);
+        }
+        break;
+      case 'update':
+        if (options.many) {
+          result = await coll.updateMany(query.filter, query.update, options);
+        } else {
+          result = await coll.updateOne(query.filter, query.update, options);
+        }
+        break;
+      case 'delete':
+        if (options.many) {
+          result = await coll.deleteMany(query, options);
+        } else {
+          result = await coll.deleteOne(query, options);
+        }
+        break;
+      default:
+        await client.close();
+        return res.status(400).json({ error: 'Unsupported query type' });
+    }
+    
+    // Close the client connection
+    await client.close();
+    
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Execute a query
 router.post('/:connectionId/:dbName/:collectionName', async (req, res) => {

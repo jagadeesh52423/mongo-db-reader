@@ -44,5 +44,5 @@ npm run server
 If you encounter issues connecting to the server:
 
 1. Make sure MongoDB is running on your system
-2. Check that the server is running (port 5000)
+2. Check that the server is running (port 5001)
 3. If you see "Cannot find module" errors, run `npm run install-all` again

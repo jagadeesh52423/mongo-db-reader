@@ -1,5 +1,148 @@
 const express = require('express');
+const { MongoClient } = require('mongodb');
+const aws4 = require('aws4');
+const { URL } = require('url');
 const router = express.Router();
+
+// New endpoint: List databases for a connection passed in the request body
+router.post('/list', async (req, res) => {
+  try {
+    const { uri, authType, username, password, awsAccessKey, awsSecretKey, awsSessionToken, awsRegion } = req.body;
+    
+    // Create a MongoDB client based on the provided connection details
+    let client;
+    
+    if (authType === 'AWS') {
+      // AWS IAM authentication
+      const url = new URL(uri);
+      const request = {
+        host: url.hostname,
+        path: url.pathname,
+        method: 'GET',
+        service: 'mongodb'
+      };
+      
+      const credentials = {
+        accessKeyId: awsAccessKey,
+        secretAccessKey: awsSecretKey,
+        sessionToken: awsSessionToken,
+        region: awsRegion
+      };
+      
+      aws4.sign(request, credentials);
+      
+      client = new MongoClient(uri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        authMechanism: 'MONGODB-AWS',
+        authSource: '$external'
+      });
+    } else if (authType === 'Basic' || authType === 'Legacy') {
+      // SCRAM-SHA-256 or SCRAM-SHA-1 authentication
+      const authMechanism = authType === 'Basic' ? 'SCRAM-SHA-256' : 'SCRAM-SHA-1';
+      client = new MongoClient(uri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        auth: {
+          username,
+          password
+        },
+        authMechanism
+      });
+    } else {
+      // No authentication
+      client = new MongoClient(uri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true
+      });
+    }
+    
+    await client.connect();
+    
+    // Get the list of databases
+    const admin = client.db().admin();
+    const dbs = await admin.listDatabases();
+    
+    // Close the client connection
+    await client.close();
+    
+    res.json({ success: true, databases: dbs.databases.map(db => db.name) });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// New endpoint: List collections for a database with connection details in request body
+router.post('/collections', async (req, res) => {
+  try {
+    const { uri, authType, username, password, awsAccessKey, awsSecretKey, awsSessionToken, awsRegion, database } = req.body;
+    
+    // Create a MongoDB client based on the provided connection details
+    let client;
+    
+    if (authType === 'AWS') {
+      // AWS IAM authentication
+      const url = new URL(uri);
+      const request = {
+        host: url.hostname,
+        path: url.pathname,
+        method: 'GET',
+        service: 'mongodb'
+      };
+      
+      const credentials = {
+        accessKeyId: awsAccessKey,
+        secretAccessKey: awsSecretKey,
+        sessionToken: awsSessionToken,
+        region: awsRegion
+      };
+      
+      aws4.sign(request, credentials);
+      
+      client = new MongoClient(uri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        authMechanism: 'MONGODB-AWS',
+        authSource: '$external'
+      });
+    } else if (authType === 'Basic' || authType === 'Legacy') {
+      // SCRAM-SHA-256 or SCRAM-SHA-1 authentication
+      const authMechanism = authType === 'Basic' ? 'SCRAM-SHA-256' : 'SCRAM-SHA-1';
+      client = new MongoClient(uri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true,
+        auth: {
+          username,
+          password
+        },
+        authMechanism
+      });
+    } else {
+      // No authentication
+      client = new MongoClient(uri, {
+        useNewUrlParser: true,
+        useUnifiedTopology: true
+      });
+    }
+    
+    await client.connect();
+    
+    // Get the list of collections
+    const db = client.db(database);
+    const collections = await db.listCollections().toArray();
+    
+    // Close the client connection
+    await client.close();
+    
+    // Map collection names and send response
+    const collectionNames = collections.map(col => col.name);
+    
+    res.json(collectionNames);
+  } catch (error) {
+    console.error("Error listing collections:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
 
 // Get all collections in a database
 router.get('/:connectionId/:dbName/collections', async (req, res) => {

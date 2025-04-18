@@ -1,6 +1,12 @@
 import React, { createContext, useState, useEffect } from 'react';
 import axios from 'axios';
 
+// Define the API base URL to point to the backend server
+const API_BASE_URL = 'http://localhost:5001';
+
+// Define a key for localStorage
+const CONNECTIONS_STORAGE_KEY = 'mongo-reader-connections';
+
 const ConnectionContext = createContext();
 
 const ConnectionProvider = ({ children }) => {
@@ -17,16 +23,40 @@ const ConnectionProvider = ({ children }) => {
   // Check if the server is running when the component mounts
   useEffect(() => {
     checkServerStatus();
+    // Load connections from localStorage on mount
+    loadConnectionsFromLocalStorage();
   }, []);
+
+  // Load connections from localStorage
+  const loadConnectionsFromLocalStorage = () => {
+    try {
+      const storedConnections = localStorage.getItem(CONNECTIONS_STORAGE_KEY);
+      if (storedConnections) {
+        setConnections(JSON.parse(storedConnections));
+      }
+    } catch (err) {
+      console.error('Error loading connections from localStorage:', err);
+    }
+  };
+
+  // Save connections to localStorage
+  const saveConnectionsToLocalStorage = (connectionsArray) => {
+    try {
+      localStorage.setItem(CONNECTIONS_STORAGE_KEY, JSON.stringify(connectionsArray));
+    } catch (err) {
+      console.error('Error saving connections to localStorage:', err);
+    }
+  };
 
   // Check server status
   const checkServerStatus = async () => {
     try {
       setServerStatus('checking');
       // First try the health endpoint, which should be the fastest response
-      await axios.get('/api/health', { timeout: 3000 });
+      await axios.get(`${API_BASE_URL}/api/health`, { timeout: 3000 });
       setServerStatus('connected');
-      fetchConnections();
+      // We don't need to fetch connections from server anymore
+      // fetchConnections();
     } catch (err) {
       console.error('Server connection error:', err);
       setServerStatus('disconnected');
@@ -34,20 +64,20 @@ const ConnectionProvider = ({ children }) => {
     }
   };
 
-  // Fetch saved connections on component mount
-  const fetchConnections = async () => {
-    if (serverStatus !== 'connected') return;
-    
-    setLoading(true);
-    try {
-      const response = await axios.get('/api/connections');
-      setConnections(response.data);
-      setLoading(false);
-    } catch (err) {
-      setError('Failed to fetch connections');
-      setLoading(false);
-    }
-  };
+  // Fetch saved connections (not used anymore, but kept for reference)
+  // const fetchConnections = async () => {
+  //   if (serverStatus !== 'connected') return;
+  //   
+  //   setLoading(true);
+  //   try {
+  //     const response = await axios.get(`${API_BASE_URL}/api/connections`);
+  //     setConnections(response.data);
+  //     setLoading(false);
+  //   } catch (err) {
+  //     setError('Failed to fetch connections');
+  //     setLoading(false);
+  //   }
+  // };
 
   // Retry connecting to the server
   const retryConnection = () => {
@@ -61,7 +91,7 @@ const ConnectionProvider = ({ children }) => {
     
     setLoading(true);
     try {
-      const response = await axios.post('/api/connections/test', connectionData);
+      const response = await axios.post(`${API_BASE_URL}/api/connections/test`, connectionData);
       setLoading(false);
       return { success: true, message: response.data.message };
     } catch (err) {
@@ -71,20 +101,33 @@ const ConnectionProvider = ({ children }) => {
   };
 
   const saveConnection = async (connectionData) => {
-    if (serverStatus !== 'connected') {
-      return { success: false, message: 'Server is not running. Please start the server first.' };
-    }
+    // Don't require server connection for saving to localStorage
+    // if (serverStatus !== 'connected') {
+    //   return { success: false, message: 'Server is not running. Please start the server first.' };
+    // }
     
     setLoading(true);
     try {
-      const response = await axios.post('/api/connections', connectionData);
-      setConnections([...connections, response.data]);
+      // Generate a unique ID for the connection
+      const newConnection = {
+        ...connectionData,
+        _id: `local_${Date.now()}`,
+        createdAt: new Date().toISOString()
+      };
+      
+      // Update state with the new connection
+      const updatedConnections = [...connections, newConnection];
+      setConnections(updatedConnections);
+      
+      // Save to localStorage
+      saveConnectionsToLocalStorage(updatedConnections);
+      
       setLoading(false);
       return { success: true };
     } catch (err) {
       setError('Failed to save connection');
       setLoading(false);
-      return { success: false, message: err.response?.data?.error || err.message };
+      return { success: false, message: err.message };
     }
   };
 
@@ -96,14 +139,52 @@ const ConnectionProvider = ({ children }) => {
     setLoading(true);
     try {
       const connection = connections.find(conn => conn._id === connectionId);
-      const response = await axios.post(`/api/connections/connect/${connectionId}`);
+      if (!connection) {
+        throw new Error(`Connection with ID ${connectionId} not found`);
+      }
+      
+      // Pass the entire connection data to the server
+      const response = await axios.post(`${API_BASE_URL}/api/connections/test`, {
+        uri: connection.uri,
+        authType: connection.authType,
+        username: connection.username,
+        password: connection.password,
+        awsAccessKey: connection.awsAccessKey,
+        awsSecretKey: connection.awsSecretKey,
+        awsSessionToken: connection.awsSessionToken,
+        awsRegion: connection.awsRegion
+      });
+      
+      // If test was successful, now connect and get databases
+      const dbResponse = await axios.post(`${API_BASE_URL}/api/databases/list`, {
+        uri: connection.uri,
+        authType: connection.authType,
+        username: connection.username,
+        password: connection.password,
+        awsAccessKey: connection.awsAccessKey,
+        awsSecretKey: connection.awsSecretKey,
+        awsSessionToken: connection.awsSessionToken,
+        awsRegion: connection.awsRegion
+      });
       
       setActiveConnection(connection);
-      setDatabases(response.data.databases);
+      setDatabases(dbResponse.data.databases || []);
+      
+      // Update last used timestamp locally
+      const updatedConnections = connections.map(conn => {
+        if (conn._id === connectionId) {
+          return { ...conn, lastUsed: new Date().toISOString() };
+        }
+        return conn;
+      });
+      
+      setConnections(updatedConnections);
+      saveConnectionsToLocalStorage(updatedConnections);
+      
       setLoading(false);
       return { success: true };
     } catch (err) {
-      setError('Failed to connect to database');
+      setError('Failed to connect to database: ' + (err.response?.data?.error || err.message));
       setLoading(false);
       return { success: false, message: err.response?.data?.error || err.message };
     }
@@ -123,10 +204,26 @@ const ConnectionProvider = ({ children }) => {
   const fetchCollections = async (connectionId, dbName) => {
     if (serverStatus !== 'connected') return;
     
-    console.log(`API call to fetch collections: /api/databases/${connectionId}/${dbName}/collections`);
     setLoading(true);
     try {
-      const response = await axios.get(`/api/databases/${connectionId}/${dbName}/collections`);
+      const connection = connections.find(conn => conn._id === connectionId);
+      if (!connection) {
+        throw new Error(`Connection with ID ${connectionId} not found`);
+      }
+      
+      // Use the API to fetch collections, passing the connection details directly
+      const response = await axios.post(`${API_BASE_URL}/api/databases/collections`, {
+        uri: connection.uri,
+        authType: connection.authType,
+        username: connection.username,
+        password: connection.password,
+        awsAccessKey: connection.awsAccessKey,
+        awsSecretKey: connection.awsSecretKey,
+        awsSessionToken: connection.awsSessionToken,
+        awsRegion: connection.awsRegion,
+        database: dbName
+      });
+      
       console.log("Collections fetched:", response.data);
       setCollections(response.data);
       setLoading(false);
@@ -149,9 +246,25 @@ const ConnectionProvider = ({ children }) => {
     
     setLoading(true);
     try {
+      // Pass connection details directly to the query endpoint
       const response = await axios.post(
-        `/api/queries/${activeConnection._id}/${activeDatabase}/${activeCollection}`,
-        { ...queryData, type }
+        `${API_BASE_URL}/api/queries/execute`,
+        { 
+          connectionDetails: {
+            uri: activeConnection.uri,
+            authType: activeConnection.authType,
+            username: activeConnection.username,
+            password: activeConnection.password,
+            awsAccessKey: activeConnection.awsAccessKey,
+            awsSecretKey: activeConnection.awsSecretKey,
+            awsSessionToken: activeConnection.awsSessionToken,
+            awsRegion: activeConnection.awsRegion
+          },
+          database: activeDatabase,
+          collection: activeCollection,
+          query: queryData,
+          type
+        }
       );
       setLoading(false);
       return { success: true, data: response.data };
@@ -159,6 +272,13 @@ const ConnectionProvider = ({ children }) => {
       setLoading(false);
       return { success: false, message: err.response?.data?.error || err.message };
     }
+  };
+
+  // Add a fetchConnections function for compatibility with the existing components
+  const fetchConnections = () => {
+    // Just load connections from localStorage
+    loadConnectionsFromLocalStorage();
+    return { success: true };
   };
 
   return (
