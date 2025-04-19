@@ -22,14 +22,14 @@ const validateSession = (req, res, next) => {
   
   // Add connectionId to request for use in route handlers
   req.connectionId = connectionId;
+  req.mongoClient = global.activeConnections[connectionId];
   next();
 };
 
 // New endpoint: List databases using session token
 router.post('/list-by-token', validateSession, async (req, res) => {
   try {
-    const { connectionId } = req;
-    const client = global.activeConnections[connectionId];
+    const client = req.mongoClient;
     
     // Get the list of databases
     const admin = client.db().admin();
@@ -37,6 +37,7 @@ router.post('/list-by-token', validateSession, async (req, res) => {
     
     res.json({ success: true, databases: dbs.databases.map(db => db.name) });
   } catch (error) {
+    console.error("Error listing databases:", error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -44,14 +45,14 @@ router.post('/list-by-token', validateSession, async (req, res) => {
 // New endpoint: List collections using session token
 router.post('/collections-by-token', validateSession, async (req, res) => {
   try {
-    const { connectionId } = req;
     const { database } = req.body;
+    const client = req.mongoClient;
     
     if (!database) {
       return res.status(400).json({ error: 'Database name is required' });
     }
     
-    const client = global.activeConnections[connectionId];
+    console.log(`Fetching collections for database: ${database}`);
     
     // Get the list of collections
     const db = client.db(database);
@@ -59,7 +60,9 @@ router.post('/collections-by-token', validateSession, async (req, res) => {
     
     // Map collection names and send response
     const collectionNames = collections.map(col => col.name);
+    console.log(`Found ${collectionNames.length} collections in ${database}:`, collectionNames);
     
+    // Return just the array of collection names
     res.json(collectionNames);
   } catch (error) {
     console.error("Error listing collections:", error);

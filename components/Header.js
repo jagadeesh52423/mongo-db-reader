@@ -11,21 +11,31 @@ import {
   FormControl,
   InputLabel,
   CircularProgress,
-  Chip
+  Chip,
+  Badge,
+  Menu,
+  Tooltip
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import AddIcon from '@mui/icons-material/Add';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
 import SyncIcon from '@mui/icons-material/Sync';
+import StorageIcon from '@mui/icons-material/Storage';
+import PowerOffIcon from '@mui/icons-material/PowerOff';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 import ConnectionDialog from './ConnectionDialog';
 
 const Header = ({ handleDrawerToggle }) => {
   const [openDialog, setOpenDialog] = useState(false);
+  const [anchorEl, setAnchorEl] = useState(null);
   const { 
-    activeConnection, 
-    databases, 
+    activeConnections,
+    currentConnectionId,
+    getAllActiveConnections,
+    focusConnection,
+    disconnectDatabase,
+    disconnectAllDatabases,
     activeDatabase,
     setActiveDatabase,
     loading,
@@ -39,6 +49,31 @@ const Header = ({ handleDrawerToggle }) => {
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
+  };
+
+  const handleConnectionMenuOpen = (event) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleConnectionMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleFocusConnection = (connectionId) => {
+    focusConnection(connectionId);
+    handleConnectionMenuClose();
+  };
+
+  const handleDisconnect = () => {
+    if (currentConnectionId) {
+      disconnectDatabase(currentConnectionId);
+    }
+    handleConnectionMenuClose();
+  };
+
+  const handleDisconnectAll = () => {
+    disconnectAllDatabases();
+    handleConnectionMenuClose();
   };
 
   // Add additional logging for debugging
@@ -80,6 +115,9 @@ const Header = ({ handleDrawerToggle }) => {
   };
 
   const statusInfo = getStatusInfo();
+  const activeConnectionsCount = Object.keys(activeConnections).length;
+  const allActiveConnections = getAllActiveConnections();
+  const currentConnection = currentConnectionId ? allActiveConnections[currentConnectionId] : null;
 
   return (
     <>
@@ -121,24 +159,69 @@ const Header = ({ handleDrawerToggle }) => {
             sx={{ mr: 2 }}
           />
           
-          {activeConnection && (
-            <Box sx={{ display: 'flex', alignItems: 'center', mr: 2 }}>
-              <FormControl sx={{ minWidth: 120, mr: 2 }} size="small">
-                <InputLabel id="database-select-label">Database</InputLabel>
-                <Select
-                  labelId="database-select-label"
-                  id="database-select"
-                  value={activeDatabase || ''}
-                  label="Database"
-                  onChange={handleDatabaseChange}
-                  endAdornment={loading && <CircularProgress size={20} sx={{ mr: 2 }} />}
+          {activeConnectionsCount > 0 && (
+            <Tooltip title="Manage connections">
+              <Badge 
+                badgeContent={activeConnectionsCount} 
+                color="secondary"
+                overlap="circular"
+                sx={{ mr: 2 }}
+              >
+                <IconButton 
+                  color="inherit" 
+                  onClick={handleConnectionMenuOpen}
                 >
-                  {databases.map((db) => (
-                    <MenuItem key={db} value={db}>{db}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-            </Box>
+                  <StorageIcon />
+                </IconButton>
+              </Badge>
+            </Tooltip>
+          )}
+
+          <Menu
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={handleConnectionMenuClose}
+          >
+            <Typography variant="subtitle2" sx={{ px: 2, py: 1, fontWeight: 'bold' }}>
+              Active Connections
+            </Typography>
+            
+            {Object.entries(allActiveConnections).map(([connId, conn]) => (
+              <MenuItem 
+                key={connId} 
+                onClick={() => handleFocusConnection(connId)}
+                selected={connId === currentConnectionId}
+              >
+                <StorageIcon fontSize="small" sx={{ mr: 1, color: connId === currentConnectionId ? 'primary.main' : 'text.secondary' }} />
+                {conn.connectionName || 'Unnamed Connection'}
+                {connId === currentConnectionId && ' (current)'}
+              </MenuItem>
+            ))}
+            
+            <Box sx={{ borderTop: 1, borderColor: 'divider', my: 1 }} />
+            
+            {currentConnectionId && (
+              <MenuItem onClick={handleDisconnect}>
+                <PowerOffIcon fontSize="small" sx={{ mr: 1 }} />
+                Disconnect Current
+              </MenuItem>
+            )}
+            
+            {activeConnectionsCount > 1 && (
+              <MenuItem onClick={handleDisconnectAll}>
+                <PowerOffIcon fontSize="small" sx={{ mr: 1 }} />
+                Disconnect All
+              </MenuItem>
+            )}
+          </Menu>
+          
+          {currentConnection && (
+            <Chip 
+              label={currentConnection.connectionName || 'Unnamed Connection'} 
+              size="small" 
+              color="primary" 
+              sx={{ mr: 2 }}
+            />
           )}
           
           <Button 

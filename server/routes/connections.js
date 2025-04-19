@@ -11,6 +11,8 @@ const router = express.Router();
 global.sessionTokens = {};
 // Add storage for local connections that aren't in the database
 global.localConnections = {};
+// Add storage for active MongoDB client connections
+global.activeConnections = {};
 
 // Helper function to generate a secure session token
 function generateSessionToken() {
@@ -160,6 +162,45 @@ router.post('/connect/:id', async (req, res) => {
     let connection;
     const connectionId = req.params.id;
     
+    // Check if the connection is already active and has a client
+    if (global.activeConnections[connectionId]) {
+      // Get the existing client
+      const existingClient = global.activeConnections[connectionId];
+      
+      // Ping to verify the connection is still alive
+      try {
+        await existingClient.db('admin').command({ ping: 1 });
+        
+        // Connection is still valid, get the list of databases
+        const admin = existingClient.db().admin();
+        const dbs = await admin.listDatabases();
+        
+        // Generate a new session token for this connection
+        const sessionToken = generateSessionToken();
+        global.sessionTokens[sessionToken] = {
+          connectionId: connectionId,
+          createdAt: new Date()
+        };
+        
+        // Return the existing connection info
+        return res.json({ 
+          success: true, 
+          sessionToken: sessionToken,
+          databases: dbs.databases.map(db => db.name),
+          reused: true
+        });
+      } catch (err) {
+        console.log("Existing connection is stale, creating a new one:", err.message);
+        // Connection is no longer valid, continue to create a new one
+        try {
+          await existingClient.close();
+        } catch (closeErr) {
+          // Ignore close errors
+        }
+        delete global.activeConnections[connectionId];
+      }
+    }
+    
     // Check if it's a local connection
     if (connectionId.startsWith('local_')) {
       // For local connections, we need the connection details in the request body
@@ -297,8 +338,17 @@ router.post('/disconnect', (req, res) => {
   
   // Only close the connection if there are no more active sessions using it
   if (!hasMoreSessions && global.activeConnections[connectionId]) {
-    // We won't actually close the connection immediately to allow for reconnection
-    // Just note it here for the response
+    // Close the connection
+    global.activeConnections[connectionId].close()
+      .then(() => {
+        console.log(`Connection ${connectionId} closed successfully.`);
+      })
+      .catch(err => {
+        console.error(`Error closing connection ${connectionId}:`, err);
+      })
+      .finally(() => {
+        delete global.activeConnections[connectionId];
+      });
   }
   
   res.json({ success: true, message: 'Disconnected successfully' });

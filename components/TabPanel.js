@@ -1,5 +1,5 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { Box, Tabs, Tab, IconButton } from '@mui/material';
+import { Box, Tabs, Tab, IconButton, Tooltip, Chip, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import QueryEditor from './QueryEditor';
@@ -7,8 +7,35 @@ import ResultsDisplay from './ResultsDisplay';
 import { ConnectionContext, CONNECTION_EVENTS } from '../contexts/ConnectionContext';
 import { COLLECTION_EVENTS } from './Sidebar';
 
+// Generate a consistent color for a connection
+const generateConnectionColor = (connectionId) => {
+  // A list of distinct colors that are easily distinguishable
+  const colors = [
+    '#4caf50', // green
+    '#2196f3', // blue
+    '#ff9800', // orange
+    '#e91e63', // pink
+    '#9c27b0', // purple
+    '#00bcd4', // cyan
+    '#ff5722', // deep orange
+    '#673ab7', // deep purple
+    '#3f51b5', // indigo
+    '#009688', // teal
+  ];
+  
+  // Use the connectionId to pick a consistent color
+  if (!connectionId) return colors[0];
+  
+  // Simple hash function to generate a number from the connectionId string
+  const hashCode = connectionId.split('').reduce(
+    (hash, char) => char.charCodeAt(0) + ((hash << 5) - hash), 0
+  );
+  
+  return colors[Math.abs(hashCode) % colors.length];
+};
+
 const TabPanel = () => {
-  const { collections, activeConnection, activeDatabase } = useContext(ConnectionContext);
+  const { connections, collections, activeConnection, activeDatabase, activeConnections } = useContext(ConnectionContext);
   const [tabs, setTabs] = useState([{ 
     id: 1, 
     title: 'Query 1', 
@@ -162,6 +189,23 @@ const TabPanel = () => {
     setTabs(newTabs);
   };
 
+  // Get connection name from connection ID
+  const getConnectionName = (connectionId) => {
+    if (!connectionId) return null;
+    
+    // First check active connections
+    if (activeConnections[connectionId]) {
+      return activeConnections[connectionId].connectionName || 'Unnamed Connection';
+    }
+    
+    // Then check all connections
+    const connection = connections.find(conn => conn._id === connectionId);
+    return connection ? (connection.name || 'Unnamed Connection') : null;
+  };
+
+  // Check if multiple connections are active
+  const hasMultipleActiveConnections = Object.keys(activeConnections).length > 1;
+
   return (
     <Box sx={{ width: '100%' }}>
       <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex' }}>
@@ -172,33 +216,66 @@ const TabPanel = () => {
           scrollButtons="auto"
           sx={{ flexGrow: 1 }}
         >
-          {tabs.map((tab, index) => (
-            <Tab
-              key={tab.id}
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  {tab.title}
-                  {/* Replace IconButton with a clickable Box to avoid button nesting */}
-                  <Box
-                    component="span"
-                    onClick={(e) => handleCloseTab(e, index)}
-                    sx={{ 
-                      ml: 1,
-                      display: 'flex',
-                      alignItems: 'center',
-                      cursor: 'pointer',
-                      color: 'text.secondary',
-                      '&:hover': {
-                        color: 'error.main'
-                      }
-                    }}
-                  >
-                    <CloseIcon fontSize="small" />
+          {tabs.map((tab, index) => {
+            const connectionName = getConnectionName(tab.connectionId);
+            const databaseName = tab.database;
+            const connectionColor = generateConnectionColor(tab.connectionId);
+
+            return (
+              <Tab
+                key={tab.id}
+                label={
+                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                    {tab.title}
+                    {connectionName && (
+                      <Tooltip title={`Connection: ${connectionName}${databaseName ? `, Database: ${databaseName}` : ''}`}>
+                        <Chip
+                          label={connectionName.split(' ')[0]}
+                          size="small"
+                          sx={{ 
+                            ml: 1, 
+                            height: '18px',
+                            fontSize: '10px',
+                            backgroundColor: connectionColor,
+                            color: '#fff',
+                            fontWeight: 'bold',
+                            maxWidth: '80px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}
+                        />
+                      </Tooltip>
+                    )}
+                    {/* Replace IconButton with a clickable Box to avoid button nesting */}
+                    <Box
+                      component="span"
+                      onClick={(e) => handleCloseTab(e, index)}
+                      sx={{ 
+                        ml: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        cursor: 'pointer',
+                        color: 'text.secondary',
+                        '&:hover': {
+                          color: 'error.main'
+                        }
+                      }}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </Box>
                   </Box>
-                </Box>
-              }
-            />
-          ))}
+                }
+                sx={{
+                  borderBottom: tab.connectionId ? `3px solid ${connectionColor}` : 'none',
+                  opacity: 1,
+                  '&.Mui-selected': {
+                    borderBottom: tab.connectionId ? `3px solid ${connectionColor}` : 'none',
+                    backgroundColor: tab.connectionId ? `${connectionColor}10` : 'inherit',
+                  },
+                }}
+              />
+            );
+          })}
         </Tabs>
         <IconButton color="primary" onClick={handleAddTab}>
           <AddIcon />
@@ -209,10 +286,37 @@ const TabPanel = () => {
           key={tab.id}
           role="tabpanel"
           hidden={activeTab !== index}
-          sx={{ py: 2 }}
+          sx={{ 
+            py: 2,
+            borderLeft: tab.connectionId ? `4px solid ${generateConnectionColor(tab.connectionId)}` : 'none',
+          }}
         >
           {activeTab === index && (
-            <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+            <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 200px)' }}>
+              {tab.connectionId && (
+                <Box sx={{ mb: 1, px: 2, display: 'flex', alignItems: 'center' }}>
+                  <Box 
+                    sx={{ 
+                      width: 12, 
+                      height: 12, 
+                      borderRadius: '50%', 
+                      backgroundColor: generateConnectionColor(tab.connectionId),
+                      mr: 1 
+                    }} 
+                  />
+                  <Chip
+                    label={`${getConnectionName(tab.connectionId)}${tab.database ? ` | ${tab.database}` : ''}`}
+                    size="small"
+                    sx={{
+                      backgroundColor: `${generateConnectionColor(tab.connectionId)}20`,
+                      borderColor: generateConnectionColor(tab.connectionId),
+                      color: 'text.primary',
+                      fontWeight: 'medium',
+                    }}
+                    variant="outlined"
+                  />
+                </Box>
+              )}
               <QueryEditor 
                 query={tab.query} 
                 onUpdateQuery={handleUpdateQuery}

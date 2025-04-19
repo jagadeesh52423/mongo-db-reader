@@ -6,22 +6,24 @@ const API_BASE_URL = 'http://localhost:5001';
 
 // Define keys for localStorage
 const CONNECTIONS_STORAGE_KEY = 'mongo-reader-connections';
-const SESSION_TOKEN_STORAGE_KEY = 'mongo-reader-session-token';
+const ACTIVE_CONNECTIONS_STORAGE_KEY = 'mongo-reader-active-connections';
 
 // Create a custom event for connection status changes
 export const CONNECTION_EVENTS = {
-  DISCONNECT: 'connection-disconnect'
+  CONNECT: 'connection-connect',
+  DISCONNECT: 'connection-disconnect',
+  DATABASE_SELECTED: 'database-selected',
+  CONNECTION_FOCUSED: 'connection-focused'
 };
 
 const ConnectionContext = createContext();
 
 const ConnectionProvider = ({ children }) => {
   const [connections, setConnections] = useState([]);
-  const [activeConnection, setActiveConnection] = useState(null);
-  const [sessionToken, setSessionToken] = useState(null);
-  const [databases, setDatabases] = useState([]);
-  const [activeDatabase, setActiveDatabase] = useState(null);
-  const [collections, setCollections] = useState([]);
+  // Store multiple active connections instead of just one
+  const [activeConnections, setActiveConnections] = useState({});
+  // Current selected connection (for UI focus)
+  const [currentConnectionId, setCurrentConnectionId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [serverStatus, setServerStatus] = useState('checking');
@@ -31,50 +33,61 @@ const ConnectionProvider = ({ children }) => {
     checkServerStatus();
     // Load connections from localStorage on mount (only for display in sidebar)
     loadConnectionsFromLocalStorage();
-    // Try to restore session if exists
-    restoreSessionFromStorage();
+    // Try to restore active connections if they exist
+    restoreActiveConnectionsFromStorage();
   }, []);
 
-  // Restore session from localStorage if available
-  const restoreSessionFromStorage = async () => {
+  // Update active connections in localStorage whenever they change
+  useEffect(() => {
+    saveActiveConnectionsToLocalStorage(activeConnections);
+    
+    // If we don't have a current connection but have active connections,
+    // set the first one as current
+    if (!currentConnectionId && Object.keys(activeConnections).length > 0) {
+      const firstConnectionId = Object.keys(activeConnections)[0];
+      setCurrentConnectionId(firstConnectionId);
+    }
+  }, [activeConnections, currentConnectionId]);
+
+  // Restore active connections from localStorage if available
+  const restoreActiveConnectionsFromStorage = async () => {
     try {
-      const storedToken = localStorage.getItem(SESSION_TOKEN_STORAGE_KEY);
-      if (storedToken) {
-        const tokenData = JSON.parse(storedToken);
+      const storedActiveConnections = localStorage.getItem(ACTIVE_CONNECTIONS_STORAGE_KEY);
+      if (storedActiveConnections) {
+        const parsedActiveConnections = JSON.parse(storedActiveConnections);
         
-        // Validate the token with the server
-        const result = await validateSessionToken(tokenData.sessionToken);
-        if (result.success) {
-          setSessionToken(tokenData.sessionToken);
-          
-          // Find the connection in local storage by ID
-          const storedConnections = localStorage.getItem(CONNECTIONS_STORAGE_KEY);
-          if (storedConnections) {
-            const parsedConnections = JSON.parse(storedConnections);
-            const connection = parsedConnections.find(conn => conn._id === tokenData.connectionId);
-            if (connection) {
-              setActiveConnection({
-                _id: connection._id,
-                name: connection.name
-              });
+        const validConnections = {};
+        let latestTimestamp = 0;
+        let latestConnectionId = null;
+        
+        // Validate each stored connection with the server
+        for (const [connectionId, connectionData] of Object.entries(parsedActiveConnections)) {
+          if (connectionData.sessionToken) {
+            const result = await validateSessionToken(connectionData.sessionToken);
+            if (result.success) {
+              validConnections[connectionId] = connectionData;
               
-              // Fetch databases using the session token
-              fetchDatabasesByToken(tokenData.sessionToken);
-              
-              // Restore active database if available
-              if (tokenData.database) {
-                setActiveDatabase(tokenData.database);
+              // Track most recently used connection
+              if (connectionData.timestamp > latestTimestamp) {
+                latestTimestamp = connectionData.timestamp;
+                latestConnectionId = connectionId;
               }
             }
           }
-        } else {
-          // Invalid token, clear it
-          localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
+        }
+        
+        if (Object.keys(validConnections).length > 0) {
+          setActiveConnections(validConnections);
+          
+          // Set the most recently used connection as current
+          if (latestConnectionId) {
+            setCurrentConnectionId(latestConnectionId);
+          }
         }
       }
     } catch (err) {
-      console.error('Error restoring session:', err);
-      localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
+      console.error('Error restoring active connections:', err);
+      localStorage.removeItem(ACTIVE_CONNECTIONS_STORAGE_KEY);
     }
   };
 
@@ -94,7 +107,7 @@ const ConnectionProvider = ({ children }) => {
     }
   };
 
-  // Load connections from localStorage (only for display in sidebar)
+  // Load connections from localStorage
   const loadConnectionsFromLocalStorage = () => {
     try {
       const storedConnections = localStorage.getItem(CONNECTIONS_STORAGE_KEY);
@@ -112,6 +125,15 @@ const ConnectionProvider = ({ children }) => {
       localStorage.setItem(CONNECTIONS_STORAGE_KEY, JSON.stringify(connectionsArray));
     } catch (err) {
       console.error('Error saving connections to localStorage:', err);
+    }
+  };
+
+  // Save active connections to localStorage
+  const saveActiveConnectionsToLocalStorage = (activeConnectionsObj) => {
+    try {
+      localStorage.setItem(ACTIVE_CONNECTIONS_STORAGE_KEY, JSON.stringify(activeConnectionsObj));
+    } catch (err) {
+      console.error('Error saving active connections to localStorage:', err);
     }
   };
 
@@ -198,9 +220,15 @@ const ConnectionProvider = ({ children }) => {
       setConnections(updatedConnections);
       saveConnectionsToLocalStorage(updatedConnections);
       
-      // If this was the active connection, update it
-      if (activeConnection && activeConnection._id === connectionId) {
-        setActiveConnection(prev => ({ ...prev, ...updatedData }));
+      // If this is an active connection, update the display name
+      if (activeConnections[connectionId]) {
+        setActiveConnections(prev => ({
+          ...prev,
+          [connectionId]: {
+            ...prev[connectionId],
+            connectionName: updatedData.name || prev[connectionId].connectionName
+          }
+        }));
       }
       
       setLoading(false);
@@ -226,18 +254,9 @@ const ConnectionProvider = ({ children }) => {
       setConnections(updatedConnections);
       saveConnectionsToLocalStorage(updatedConnections);
       
-      // If this was the active connection, clear it and the session
-      if (activeConnection && activeConnection._id === connectionId) {
-        if (sessionToken) {
-          // Properly disconnect from server and invalidate session
-          await disconnectDatabase();
-        } else {
-          // Just clear local state
-          setActiveConnection(null);
-          setDatabases([]);
-          setActiveDatabase(null);
-          setCollections([]);
-        }
+      // If this is an active connection, disconnect it
+      if (activeConnections[connectionId]) {
+        await disconnectDatabase(connectionId);
       }
       
       setLoading(false);
@@ -249,17 +268,27 @@ const ConnectionProvider = ({ children }) => {
     }
   };
 
-  // Fetch databases using session token
-  const fetchDatabasesByToken = async (token) => {
-    if (!token || serverStatus !== 'connected') return;
+  // Fetch databases for a connection
+  const fetchDatabasesByToken = async (connectionId) => {
+    if (!activeConnections[connectionId] || !activeConnections[connectionId].sessionToken || serverStatus !== 'connected') return;
     
     setLoading(true);
     try {
       const response = await axios.post(`${API_BASE_URL}/api/databases/list-by-token`, {
-        sessionToken: token
+        sessionToken: activeConnections[connectionId].sessionToken
       });
       
-      setDatabases(response.data.databases || []);
+      // Update the connection's database list
+      const updatedActiveConnections = {
+        ...activeConnections,
+        [connectionId]: {
+          ...activeConnections[connectionId],
+          databases: response.data.databases || []
+        }
+      };
+      
+      setActiveConnections(updatedActiveConnections);
+      
       setLoading(false);
     } catch (err) {
       console.error('Error fetching databases:', err);
@@ -268,14 +297,42 @@ const ConnectionProvider = ({ children }) => {
     }
   };
 
+  // Focus on a specific connection
+  const focusConnection = (connectionId) => {
+    if (!activeConnections[connectionId]) {
+      console.error(`Cannot focus on connection ${connectionId}: not active`);
+      return;
+    }
+    
+    // Update timestamp to mark this as the most recently used connection
+    setActiveConnections(prev => ({
+      ...prev,
+      [connectionId]: {
+        ...prev[connectionId],
+        timestamp: Date.now()
+      }
+    }));
+    
+    // Set as current connection
+    setCurrentConnectionId(connectionId);
+    
+    // Dispatch focus event
+    const event = new CustomEvent(CONNECTION_EVENTS.CONNECTION_FOCUSED, {
+      detail: { connectionId }
+    });
+    window.dispatchEvent(event);
+  };
+
   const connectToDatabase = async (connectionId) => {
     if (serverStatus !== 'connected') {
       return { success: false, message: 'Server is not running. Please start the server first.' };
     }
     
-    // If we're already connected with a session token, disconnect first
-    if (sessionToken) {
-      await disconnectDatabase();
+    // Check if already connected
+    if (activeConnections[connectionId]) {
+      // Just set as current connection and return
+      focusConnection(connectionId);
+      return { success: true, reused: true };
     }
     
     setLoading(true);
@@ -309,26 +366,28 @@ const ConnectionProvider = ({ children }) => {
         throw new Error('Server did not return a session token');
       }
       
-      // Store the session token
-      const newToken = response.data.sessionToken;
-      setSessionToken(newToken);
+      // Add to active connections
+      const timestamp = Date.now();
+      const newActiveConnection = {
+        connectionId,
+        connectionName: connection.name,
+        sessionToken: response.data.sessionToken,
+        databases: response.data.databases || [],
+        activeDatabase: null,
+        collections: [],
+        timestamp
+      };
       
-      // Save session info to localStorage for persistence
-      localStorage.setItem(SESSION_TOKEN_STORAGE_KEY, JSON.stringify({
-        sessionToken: newToken,
-        connectionId: connection._id,
-        timestamp: new Date().toISOString()
+      // Update state with the new active connection
+      setActiveConnections(prev => ({
+        ...prev,
+        [connectionId]: newActiveConnection
       }));
       
-      // Update state with minimal connection info (no credentials)
-      setActiveConnection({
-        _id: connection._id,
-        name: connection.name
-      });
+      // Set this as the current connection
+      setCurrentConnectionId(connectionId);
       
-      setDatabases(response.data.databases || []);
-      
-      // Update last used timestamp locally
+      // Update last used timestamp in connections list
       const updatedConnections = connections.map(conn => {
         if (conn._id === connectionId) {
           return { ...conn, lastUsed: new Date().toISOString() };
@@ -339,6 +398,12 @@ const ConnectionProvider = ({ children }) => {
       setConnections(updatedConnections);
       saveConnectionsToLocalStorage(updatedConnections);
       
+      // Dispatch connect event for other components to react
+      const event = new CustomEvent(CONNECTION_EVENTS.CONNECT, {
+        detail: { connectionId, databases: response.data.databases || [] }
+      });
+      window.dispatchEvent(event);
+      
       setLoading(false);
       return { success: true };
     } catch (err) {
@@ -348,45 +413,91 @@ const ConnectionProvider = ({ children }) => {
     }
   };
 
-  // Fetch collections when active database changes
-  useEffect(() => {
-    if (sessionToken && activeDatabase) {
-      console.log(`Fetching collections for database: ${activeDatabase}`);
-      fetchCollectionsByToken();
-      
-      // Update session storage with active database
-      const storedSession = localStorage.getItem(SESSION_TOKEN_STORAGE_KEY);
-      if (storedSession) {
-        const sessionData = JSON.parse(storedSession);
-        localStorage.setItem(SESSION_TOKEN_STORAGE_KEY, JSON.stringify({
-          ...sessionData,
-          database: activeDatabase
-        }));
-      }
-    } else {
-      // Clear collections when no database is selected
-      setCollections([]);
+  // Set active database for a connection
+  const setActiveDatabase = (database, connectionId = null) => {
+    // Use current connection if not specified
+    const targetConnectionId = connectionId || currentConnectionId;
+    
+    if (!targetConnectionId || !activeConnections[targetConnectionId]) {
+      console.error('Cannot set active database: No active connection selected');
+      return;
     }
-  }, [sessionToken, activeDatabase]);
+    
+    // Update the active database for this connection
+    setActiveConnections(prev => ({
+      ...prev,
+      [targetConnectionId]: {
+        ...prev[targetConnectionId],
+        activeDatabase: database,
+        collections: [], // Reset collections
+        timestamp: Date.now() // Update timestamp
+      }
+    }));
+    
+    // If this connection is in focus, also update collections
+    if (targetConnectionId === currentConnectionId) {
+      fetchCollectionsByToken(targetConnectionId, database);
+    }
+    
+    // Dispatch event for database selection
+    const event = new CustomEvent(CONNECTION_EVENTS.DATABASE_SELECTED, {
+      detail: { connectionId: targetConnectionId, database }
+    });
+    window.dispatchEvent(event);
+  };
 
-  const fetchCollectionsByToken = async () => {
-    if (!sessionToken || !activeDatabase || serverStatus !== 'connected') return;
+  // Fetch collections for a connection and database
+  const fetchCollectionsByToken = async (connectionId, database) => {
+    if (!connectionId) connectionId = currentConnectionId;
+    if (!connectionId) return [];
+    
+    if (!activeConnections[connectionId] || !activeConnections[connectionId].sessionToken || serverStatus !== 'connected') {
+      console.error('Cannot fetch collections: Missing connection or session token');
+      return [];
+    }
+    
+    // If database not specified, use the active one
+    if (!database) {
+      database = activeConnections[connectionId].activeDatabase;
+    }
+    
+    if (!database) {
+      console.error('Cannot fetch collections: No database specified');
+      return [];
+    }
     
     setLoading(true);
     try {
+      console.log(`Fetching collections for connection ${connectionId}, database ${database}`);
       const response = await axios.post(`${API_BASE_URL}/api/databases/collections-by-token`, {
-        sessionToken,
-        database: activeDatabase
+        sessionToken: activeConnections[connectionId].sessionToken,
+        database: database
       });
       
-      console.log("Collections fetched:", response.data);
-      setCollections(response.data);
+      console.log(`Collections received for ${database}:`, response.data);
+      
+      // Update collections for this connection
+      setActiveConnections(prev => {
+        const updatedConnection = {
+          ...prev[connectionId],
+          activeDatabase: database,
+          collections: response.data || [],
+          timestamp: Date.now()
+        };
+        
+        return {
+          ...prev,
+          [connectionId]: updatedConnection
+        };
+      });
+      
       setLoading(false);
+      return response.data || [];
     } catch (err) {
-      console.error("Error fetching collections:", err);
+      console.error(`Error fetching collections for ${database}:`, err);
       setError(`Failed to fetch collections: ${err.message}`);
-      setCollections([]);
       setLoading(false);
+      return [];
     }
   };
 
@@ -400,16 +511,25 @@ const ConnectionProvider = ({ children }) => {
       return { success: false, message: 'Server is not running. Please start the server first.' };
     }
     
-    // Check if we have a session token to use
-    if (sessionToken) {
+    // Determine which connection to use
+    const connectionId = options.connectionId || currentConnectionId;
+    
+    if (!connectionId) {
+      return { success: false, message: 'No connection specified for this query' };
+    }
+    
+    const activeConnection = activeConnections[connectionId];
+    
+    // If we have an active connection with session token
+    if (activeConnection && activeConnection.sessionToken) {
       setLoading(true);
       try {
         // Use session token for the query
         const response = await axios.post(
           `${API_BASE_URL}/api/queries/execute-by-token`,
           { 
-            sessionToken,
-            database: options.database || activeDatabase,
+            sessionToken: activeConnection.sessionToken,
+            database: options.database || activeConnection.activeDatabase,
             collection: options.collection,
             query: queryData,
             type,
@@ -424,13 +544,8 @@ const ConnectionProvider = ({ children }) => {
       }
     } else {
       // Fall back to the old method if no session token
-      const connectionId = options.connectionId || (activeConnection && activeConnection._id);
-      const dbName = options.database || activeDatabase;
+      const dbName = options.database;
       const targetCollection = options.collection;
-      
-      if (!connectionId) {
-        return { success: false, message: 'No connection specified for this query' };
-      }
       
       if (!dbName) {
         return { success: false, message: 'No database specified for this query' };
@@ -485,34 +600,55 @@ const ConnectionProvider = ({ children }) => {
     return { success: true };
   };
 
-  // Disconnect from the current database
-  const disconnectDatabase = async () => {
-    if (!activeConnection) {
+  // Disconnect from a specific database
+  const disconnectDatabase = async (connectionId = null) => {
+    // If no connection ID provided, use the current one
+    if (!connectionId) {
+      connectionId = currentConnectionId;
+    }
+    
+    if (!connectionId || !activeConnections[connectionId]) {
       return { success: false, message: 'No active connection to disconnect' };
     }
     
-    const connectionId = activeConnection._id;
-    
     setLoading(true);
     try {
+      const connectionData = activeConnections[connectionId];
+      
       // If we have a session token, tell the server to clean up
-      if (sessionToken && serverStatus === 'connected') {
+      if (connectionData.sessionToken && serverStatus === 'connected') {
         await axios.post(`${API_BASE_URL}/api/connections/disconnect`, {
-          sessionToken
+          sessionToken: connectionData.sessionToken
         });
       }
       
-      // Remove session token from localStorage
-      localStorage.removeItem(SESSION_TOKEN_STORAGE_KEY);
+      // Remove from active connections
+      const updatedActiveConnections = { ...activeConnections };
+      delete updatedActiveConnections[connectionId];
       
-      // Clear all connection-related state
-      setSessionToken(null);
-      setActiveConnection(null);
-      setDatabases([]);
-      setActiveDatabase(null);
-      setCollections([]);
+      // Update state
+      setActiveConnections(updatedActiveConnections);
       
-      // Dispatch a custom event to notify components (like TabPanel) that
+      // If this was the current connection, set a new current connection or clear it
+      if (connectionId === currentConnectionId) {
+        const activeConnectionIds = Object.keys(updatedActiveConnections);
+        if (activeConnectionIds.length > 0) {
+          // Use the most recently used connection
+          const mostRecentConnectionId = activeConnectionIds.reduce((mostRecent, connId) => {
+            const conn = updatedActiveConnections[connId];
+            if (!mostRecent || conn.timestamp > updatedActiveConnections[mostRecent].timestamp) {
+              return connId;
+            }
+            return mostRecent;
+          }, null);
+          
+          setCurrentConnectionId(mostRecentConnectionId);
+        } else {
+          setCurrentConnectionId(null);
+        }
+      }
+      
+      // Dispatch a custom event to notify components that
       // the connection has been disconnected
       const event = new CustomEvent(CONNECTION_EVENTS.DISCONNECT, {
         detail: { connectionId }
@@ -528,15 +664,27 @@ const ConnectionProvider = ({ children }) => {
     }
   };
 
+  // Get connection data for UI display
+  const getActiveConnectionData = (connectionId = null) => {
+    const targetConnectionId = connectionId || currentConnectionId;
+    if (!targetConnectionId || !activeConnections[targetConnectionId]) {
+      return null;
+    }
+    
+    return activeConnections[targetConnectionId];
+  };
+
+  // Get all active connections
+  const getAllActiveConnections = () => {
+    return activeConnections;
+  };
+
   return (
     <ConnectionContext.Provider
       value={{
         connections,
-        activeConnection,
-        sessionToken,
-        databases,
-        activeDatabase,
-        collections,
+        activeConnections,
+        currentConnectionId,
         loading,
         error,
         serverStatus,
@@ -548,6 +696,12 @@ const ConnectionProvider = ({ children }) => {
         connectToDatabase,
         disconnectDatabase,
         setActiveDatabase,
+        setCurrentConnectionId,
+        focusConnection,
+        getActiveConnectionData,
+        getAllActiveConnections,
+        fetchDatabasesByToken,
+        fetchCollectionsByToken,
         setActiveCollection, // Keep for backward compatibility
         executeQuery,
         retryConnection

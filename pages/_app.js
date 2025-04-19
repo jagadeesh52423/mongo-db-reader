@@ -1,6 +1,9 @@
 import React from 'react';
 import Head from 'next/head';
 import { CssBaseline, ThemeProvider, createTheme } from '@mui/material';
+import '../styles/globals.css';
+import '../styles/TreeView.css';
+import { ConnectionProvider } from '../contexts/ConnectionContext';
 
 const theme = createTheme({
   palette: {
@@ -25,7 +28,9 @@ function MyApp({ Component, pageProps }) {
       </Head>
       <ThemeProvider theme={theme}>
         <CssBaseline />
-        <Component {...pageProps} />
+        <ConnectionProvider>
+          <Component {...pageProps} />
+        </ConnectionProvider>
       </ThemeProvider>
     </>
   );
