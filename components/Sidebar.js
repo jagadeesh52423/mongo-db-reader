@@ -138,6 +138,18 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
 
   // Handle clicking on a database
   const handleDatabaseClick = async (connectionId, dbName) => {
+    const dbKey = `${connectionId}:${dbName}`;
+    const isCurrentlyExpanded = expandedDatabases[dbKey];
+    
+    // Toggle the expanded state if this database is already expanded
+    if (isCurrentlyExpanded) {
+      setExpandedDatabases(prev => ({
+        ...prev,
+        [dbKey]: false
+      }));
+      return;
+    }
+    
     // Mark this database as loading collections
     const loadingKey = `${connectionId}:${dbName}`;
     setCollectionsLoading(prev => ({
@@ -154,10 +166,10 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
       focusConnection(connectionId);
     }
     
-    // Always expand the database when clicking on it
+    // Expand the database when clicking on it
     setExpandedDatabases(prev => ({
       ...prev,
-      [`${connectionId}:${dbName}`]: true
+      [dbKey]: true
     }));
     
     // Fetch collections for this database
