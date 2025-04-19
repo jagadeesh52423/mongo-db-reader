@@ -186,7 +186,7 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
     }
   };
 
-  // Handle collection click
+  // Handle collection click - change to double click instead of single click
   const handleCollectionClick = (connectionId, dbName, collection) => {
     // Dispatch event for opening a collection
     window.dispatchEvent(
@@ -258,7 +258,7 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
                   <ListItemButton 
                     key={`${connectionId}-${dbName}-${collection}`}
                     sx={{ pl: 8 }}
-                    onClick={() => handleCollectionClick(connectionId, dbName, collection)}
+                    onDoubleClick={() => handleCollectionClick(connectionId, dbName, collection)}
                   >
                     <ListItemIcon>
                       <CollectionIcon fontSize="small" color="warning" />
