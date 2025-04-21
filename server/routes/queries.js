@@ -20,12 +20,13 @@ const validateSession = (req, res, next) => {
     return res.status(401).json({ error: 'Connection no longer active' });
   }
   
-  // Add connectionId to request for use in route handlers
+  // Add connectionId and mongoClient to request for use in route handlers
   req.connectionId = connectionId;
+  req.mongoClient = global.activeConnections[connectionId];
   next();
 };
 
-// New endpoint: Execute a query using session token
+// New endpoint: Execute a query using session token with pagination support
 router.post('/execute-by-token', validateSession, async (req, res) => {
   try {
     const { connectionId } = req;
@@ -40,46 +41,132 @@ router.post('/execute-by-token', validateSession, async (req, res) => {
     const coll = db.collection(collection);
     
     let result;
+    let metadata = {};
+    
+    // Handle pagination for find and aggregate operations
+    const hasPagination = options.pagination && (type === 'find' || type === 'aggregate');
+    const page = hasPagination ? options.pagination.page || 1 : 1;
+    const pageSize = hasPagination ? options.pagination.pageSize || 20 : 20;
+    const skip = (page - 1) * pageSize;
+    
+    // Extract options besides pagination to pass to MongoDB
+    const mongoOptions = { ...options };
+    delete mongoOptions.pagination;
     
     switch (type) {
       case 'find':
-        const findCursor = coll.find(query, options);
-        result = await findCursor.toArray();
+        // If pagination is requested, get count first
+        if (hasPagination) {
+          const totalCount = await coll.countDocuments(query);
+          metadata = {
+            totalCount,
+            page,
+            pageSize,
+            totalPages: Math.ceil(totalCount / pageSize)
+          };
+          
+          // Apply pagination
+          const findCursor = coll.find(query, mongoOptions)
+            .skip(skip)
+            .limit(pageSize);
+          
+          const documents = await findCursor.toArray();
+          
+          // Return paginated response
+          result = {
+            metadata,
+            documents
+          };
+        } else {
+          // Non-paginated response
+          const findCursor = coll.find(query, mongoOptions);
+          result = await findCursor.toArray();
+        }
         break;
-      case 'findOne':
-        result = await coll.findOne(query, options);
-        break;
-      case 'count':
-        result = await coll.countDocuments(query, options);
-        break;
+        
       case 'aggregate':
-        const aggCursor = coll.aggregate(query, options);
-        result = await aggCursor.toArray();
+        // For aggregate queries with pagination
+        if (hasPagination) {
+          // Create a pipeline for counting documents that matches the criteria
+          const countPipeline = [...query];
+          
+          // Remove any existing $skip, $limit stages if present
+          const filteredPipeline = countPipeline.filter(stage => 
+            !stage.$skip && !stage.$limit && !stage.$sort
+          );
+          
+          // Add count stage
+          const countResult = await coll.aggregate([
+            ...filteredPipeline,
+            { $count: 'totalCount' }
+          ]).toArray();
+          
+          const totalCount = countResult.length > 0 ? countResult[0].totalCount : 0;
+          
+          metadata = {
+            totalCount,
+            page,
+            pageSize,
+            totalPages: Math.ceil(totalCount / pageSize)
+          };
+          
+          // Clone the original pipeline
+          const paginatedPipeline = [...query];
+          
+          // Add pagination stages
+          paginatedPipeline.push({ $skip: skip });
+          paginatedPipeline.push({ $limit: pageSize });
+          
+          const documents = await coll.aggregate(paginatedPipeline, mongoOptions).toArray();
+          
+          // Return paginated response
+          result = {
+            metadata,
+            documents
+          };
+        } else {
+          // Non-paginated response
+          const aggCursor = coll.aggregate(query, mongoOptions);
+          result = await aggCursor.toArray();
+        }
         break;
+        
+      case 'findOne':
+        result = await coll.findOne(query, mongoOptions);
+        break;
+        
+      case 'count':
+        result = await coll.countDocuments(query, mongoOptions);
+        break;
+        
       case 'distinct':
-        result = await coll.distinct(query.field, query.filter || {}, options);
+        result = await coll.distinct(query.field, query.filter || {}, mongoOptions);
         break;
+        
       case 'insert':
         if (Array.isArray(query)) {
-          result = await coll.insertMany(query, options);
+          result = await coll.insertMany(query, mongoOptions);
         } else {
-          result = await coll.insertOne(query, options);
+          result = await coll.insertOne(query, mongoOptions);
         }
         break;
+        
       case 'update':
-        if (options.many) {
-          result = await coll.updateMany(query.filter, query.update, options);
+        if (mongoOptions.many) {
+          result = await coll.updateMany(query.filter, query.update, mongoOptions);
         } else {
-          result = await coll.updateOne(query.filter, query.update, options);
+          result = await coll.updateOne(query.filter, query.update, mongoOptions);
         }
         break;
+        
       case 'delete':
-        if (options.many) {
-          result = await coll.deleteMany(query, options);
+        if (mongoOptions.many) {
+          result = await coll.deleteMany(query, mongoOptions);
         } else {
-          result = await coll.deleteOne(query, options);
+          result = await coll.deleteOne(query, mongoOptions);
         }
         break;
+        
       default:
         return res.status(400).json({ error: 'Unsupported query type' });
     }
@@ -90,7 +177,7 @@ router.post('/execute-by-token', validateSession, async (req, res) => {
   }
 });
 
-// New endpoint: Execute a query with connection details in the request body
+// Execute a query with connection details in the request body
 router.post('/execute', async (req, res) => {
   try {
     const { connectionDetails, database, collection, query, type, options = {} } = req.body;
@@ -151,46 +238,132 @@ router.post('/execute', async (req, res) => {
     const coll = db.collection(collection);
     
     let result;
+    let metadata = {};
+    
+    // Handle pagination for find and aggregate operations
+    const hasPagination = options.pagination && (type === 'find' || type === 'aggregate');
+    const page = hasPagination ? options.pagination.page || 1 : 1;
+    const pageSize = hasPagination ? options.pagination.pageSize || 20 : 20;
+    const skip = (page - 1) * pageSize;
+    
+    // Extract options besides pagination to pass to MongoDB
+    const mongoOptions = { ...options };
+    delete mongoOptions.pagination;
     
     switch (type) {
       case 'find':
-        const findCursor = coll.find(query, options);
-        result = await findCursor.toArray();
+        // If pagination is requested, get count first
+        if (hasPagination) {
+          const totalCount = await coll.countDocuments(query);
+          metadata = {
+            totalCount,
+            page,
+            pageSize,
+            totalPages: Math.ceil(totalCount / pageSize)
+          };
+          
+          // Apply pagination
+          const findCursor = coll.find(query, mongoOptions)
+            .skip(skip)
+            .limit(pageSize);
+          
+          const documents = await findCursor.toArray();
+          
+          // Return paginated response
+          result = {
+            metadata,
+            documents
+          };
+        } else {
+          // Non-paginated response
+          const findCursor = coll.find(query, mongoOptions);
+          result = await findCursor.toArray();
+        }
         break;
-      case 'findOne':
-        result = await coll.findOne(query, options);
-        break;
-      case 'count':
-        result = await coll.countDocuments(query, options);
-        break;
+        
       case 'aggregate':
-        const aggCursor = coll.aggregate(query, options);
-        result = await aggCursor.toArray();
+        // For aggregate queries with pagination
+        if (hasPagination) {
+          // Create a pipeline for counting documents that matches the criteria
+          const countPipeline = [...query];
+          
+          // Remove any existing $skip, $limit stages if present
+          const filteredPipeline = countPipeline.filter(stage => 
+            !stage.$skip && !stage.$limit && !stage.$sort
+          );
+          
+          // Add count stage
+          const countResult = await coll.aggregate([
+            ...filteredPipeline,
+            { $count: 'totalCount' }
+          ]).toArray();
+          
+          const totalCount = countResult.length > 0 ? countResult[0].totalCount : 0;
+          
+          metadata = {
+            totalCount,
+            page,
+            pageSize,
+            totalPages: Math.ceil(totalCount / pageSize)
+          };
+          
+          // Clone the original pipeline
+          const paginatedPipeline = [...query];
+          
+          // Add pagination stages
+          paginatedPipeline.push({ $skip: skip });
+          paginatedPipeline.push({ $limit: pageSize });
+          
+          const documents = await coll.aggregate(paginatedPipeline, mongoOptions).toArray();
+          
+          // Return paginated response
+          result = {
+            metadata,
+            documents
+          };
+        } else {
+          // Non-paginated response
+          const aggCursor = coll.aggregate(query, mongoOptions);
+          result = await aggCursor.toArray();
+        }
         break;
+        
+      case 'findOne':
+        result = await coll.findOne(query, mongoOptions);
+        break;
+        
+      case 'count':
+        result = await coll.countDocuments(query, mongoOptions);
+        break;
+        
       case 'distinct':
-        result = await coll.distinct(query.field, query.filter || {}, options);
+        result = await coll.distinct(query.field, query.filter || {}, mongoOptions);
         break;
+        
       case 'insert':
         if (Array.isArray(query)) {
-          result = await coll.insertMany(query, options);
+          result = await coll.insertMany(query, mongoOptions);
         } else {
-          result = await coll.insertOne(query, options);
+          result = await coll.insertOne(query, mongoOptions);
         }
         break;
+        
       case 'update':
-        if (options.many) {
-          result = await coll.updateMany(query.filter, query.update, options);
+        if (mongoOptions.many) {
+          result = await coll.updateMany(query.filter, query.update, mongoOptions);
         } else {
-          result = await coll.updateOne(query.filter, query.update, options);
+          result = await coll.updateOne(query.filter, query.update, mongoOptions);
         }
         break;
+        
       case 'delete':
-        if (options.many) {
-          result = await coll.deleteMany(query, options);
+        if (mongoOptions.many) {
+          result = await coll.deleteMany(query, mongoOptions);
         } else {
-          result = await coll.deleteOne(query, options);
+          result = await coll.deleteOne(query, mongoOptions);
         }
         break;
+        
       default:
         await client.close();
         return res.status(400).json({ error: 'Unsupported query type' });
@@ -205,7 +378,7 @@ router.post('/execute', async (req, res) => {
   }
 });
 
-// Execute a query
+// Execute a query using path parameters
 router.post('/:connectionId/:dbName/:collectionName', async (req, res) => {
   try {
     const { connectionId, dbName, collectionName } = req.params;
@@ -219,46 +392,132 @@ router.post('/:connectionId/:dbName/:collectionName', async (req, res) => {
     const collection = db.collection(collectionName);
     
     let result;
+    let metadata = {};
+    
+    // Handle pagination for find and aggregate operations
+    const hasPagination = options.pagination && (type === 'find' || type === 'aggregate');
+    const page = hasPagination ? options.pagination.page || 1 : 1;
+    const pageSize = hasPagination ? options.pagination.pageSize || 20 : 20;
+    const skip = (page - 1) * pageSize;
+    
+    // Extract options besides pagination to pass to MongoDB
+    const mongoOptions = { ...options };
+    delete mongoOptions.pagination;
     
     switch (type) {
       case 'find':
-        const findCursor = collection.find(query, options);
-        result = await findCursor.toArray();
+        // If pagination is requested, get count first
+        if (hasPagination) {
+          const totalCount = await collection.countDocuments(query);
+          metadata = {
+            totalCount,
+            page,
+            pageSize,
+            totalPages: Math.ceil(totalCount / pageSize)
+          };
+          
+          // Apply pagination
+          const findCursor = collection.find(query, mongoOptions)
+            .skip(skip)
+            .limit(pageSize);
+          
+          const documents = await findCursor.toArray();
+          
+          // Return paginated response
+          result = {
+            metadata,
+            documents
+          };
+        } else {
+          // Non-paginated response
+          const findCursor = collection.find(query, mongoOptions);
+          result = await findCursor.toArray();
+        }
         break;
-      case 'findOne':
-        result = await collection.findOne(query, options);
-        break;
-      case 'count':
-        result = await collection.countDocuments(query, options);
-        break;
+        
       case 'aggregate':
-        const aggCursor = collection.aggregate(query, options);
-        result = await aggCursor.toArray();
+        // For aggregate queries with pagination
+        if (hasPagination) {
+          // Create a pipeline for counting documents that matches the criteria
+          const countPipeline = [...query];
+          
+          // Remove any existing $skip, $limit stages if present
+          const filteredPipeline = countPipeline.filter(stage => 
+            !stage.$skip && !stage.$limit && !stage.$sort
+          );
+          
+          // Add count stage
+          const countResult = await collection.aggregate([
+            ...filteredPipeline,
+            { $count: 'totalCount' }
+          ]).toArray();
+          
+          const totalCount = countResult.length > 0 ? countResult[0].totalCount : 0;
+          
+          metadata = {
+            totalCount,
+            page,
+            pageSize,
+            totalPages: Math.ceil(totalCount / pageSize)
+          };
+          
+          // Clone the original pipeline
+          const paginatedPipeline = [...query];
+          
+          // Add pagination stages
+          paginatedPipeline.push({ $skip: skip });
+          paginatedPipeline.push({ $limit: pageSize });
+          
+          const documents = await collection.aggregate(paginatedPipeline, mongoOptions).toArray();
+          
+          // Return paginated response
+          result = {
+            metadata,
+            documents
+          };
+        } else {
+          // Non-paginated response
+          const aggCursor = collection.aggregate(query, mongoOptions);
+          result = await aggCursor.toArray();
+        }
         break;
+        
+      case 'findOne':
+        result = await collection.findOne(query, mongoOptions);
+        break;
+        
+      case 'count':
+        result = await collection.countDocuments(query, mongoOptions);
+        break;
+        
       case 'distinct':
-        result = await collection.distinct(query.field, query.filter || {}, options);
+        result = await collection.distinct(query.field, query.filter || {}, mongoOptions);
         break;
+        
       case 'insert':
         if (Array.isArray(query)) {
-          result = await collection.insertMany(query, options);
+          result = await collection.insertMany(query, mongoOptions);
         } else {
-          result = await collection.insertOne(query, options);
+          result = await collection.insertOne(query, mongoOptions);
         }
         break;
+        
       case 'update':
-        if (options.many) {
-          result = await collection.updateMany(query.filter, query.update, options);
+        if (mongoOptions.many) {
+          result = await collection.updateMany(query.filter, query.update, mongoOptions);
         } else {
-          result = await collection.updateOne(query.filter, query.update, options);
+          result = await collection.updateOne(query.filter, query.update, mongoOptions);
         }
         break;
+        
       case 'delete':
-        if (options.many) {
-          result = await collection.deleteMany(query, options);
+        if (mongoOptions.many) {
+          result = await collection.deleteMany(query, mongoOptions);
         } else {
-          result = await collection.deleteOne(query, options);
+          result = await collection.deleteOne(query, mongoOptions);
         }
         break;
+        
       default:
         return res.status(400).json({ error: 'Unsupported query type' });
     }

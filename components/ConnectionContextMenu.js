@@ -8,7 +8,7 @@ import PowerIcon from '@mui/icons-material/Power';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
 const ConnectionContextMenu = ({ x, y, connectionId, isConnected, onClose, hasMultipleActiveConnections }) => {
-  const { connectToDatabase, disconnectDatabase, disconnectAllDatabases, deleteConnection, editConnection, focusConnection, duplicateConnection } = useContext(ConnectionContext);
+  const { connectToDatabase, disconnectDatabase, disconnectAllDatabases, deleteConnection, updateConnection, focusConnection, duplicateConnection } = useContext(ConnectionContext);
 
   const handleConnect = async () => {
     await connectToDatabase(connectionId);
@@ -26,7 +26,10 @@ const ConnectionContextMenu = ({ x, y, connectionId, isConnected, onClose, hasMu
   };
 
   const handleEdit = () => {
-    editConnection(connectionId);
+    // Trigger the edit connection dialog through a custom event
+    window.dispatchEvent(new CustomEvent('edit-connection-dialog', {
+      detail: { connectionId }
+    }));
     onClose();
   };
 

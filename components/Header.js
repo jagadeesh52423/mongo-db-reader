@@ -28,8 +28,11 @@ import ConnectionDialog from './ConnectionDialog';
 
 const Header = ({ handleDrawerToggle }) => {
   const [openDialog, setOpenDialog] = useState(false);
+  const [editConnectionData, setEditConnectionData] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
   const [anchorEl, setAnchorEl] = useState(null);
   const { 
+    connections,
     activeConnections,
     currentConnectionId,
     getAllActiveConnections,
@@ -43,12 +46,48 @@ const Header = ({ handleDrawerToggle }) => {
     retryConnection
   } = useContext(ConnectionContext);
 
+  // Listen for custom events to open the connection dialog
+  useEffect(() => {
+    const handleNewConnectionEvent = () => {
+      setIsEditing(false);
+      setEditConnectionData(null);
+      setOpenDialog(true);
+    };
+
+    const handleEditConnectionEvent = (event) => {
+      const { connectionId } = event.detail;
+      
+      // Find the connection data to edit
+      const connectionToEdit = connections.find(conn => conn._id === connectionId);
+      
+      if (connectionToEdit) {
+        setIsEditing(true);
+        setEditConnectionData(connectionToEdit);
+        setOpenDialog(true);
+      }
+    };
+
+    // Listen for both regular and edit connection events
+    window.addEventListener('open-connection-dialog', handleNewConnectionEvent);
+    window.addEventListener('edit-connection-dialog', handleEditConnectionEvent);
+    
+    return () => {
+      window.removeEventListener('open-connection-dialog', handleNewConnectionEvent);
+      window.removeEventListener('edit-connection-dialog', handleEditConnectionEvent);
+    };
+  }, [connections]);
+
   const handleOpenDialog = () => {
+    setIsEditing(false);
+    setEditConnectionData(null);
     setOpenDialog(true);
   };
 
   const handleCloseDialog = () => {
     setOpenDialog(false);
+    // Reset edit state when dialog closes
+    setIsEditing(false);
+    setEditConnectionData(null);
   };
 
   const handleConnectionMenuOpen = (event) => {
@@ -234,7 +273,12 @@ const Header = ({ handleDrawerToggle }) => {
         </Toolbar>
       </AppBar>
       
-      <ConnectionDialog open={openDialog} handleClose={handleCloseDialog} />
+      <ConnectionDialog 
+        open={openDialog} 
+        handleClose={handleCloseDialog} 
+        initialData={editConnectionData}
+        isEditing={isEditing}
+      />
     </>
   );
 };

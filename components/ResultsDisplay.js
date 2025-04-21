@@ -17,7 +17,13 @@ import {
   AccordionSummary,
   AccordionDetails,
   Divider,
-  Chip
+  Chip,
+  Pagination,
+  FormControl,
+  Select,
+  MenuItem,
+  InputLabel,
+  Stack
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -83,40 +89,94 @@ const MongoQueryDisplay = ({ query }) => {
 };
 
 // Results display for a single query result
-const SingleResultDisplay = ({ results }) => {
-  const [viewMode, setViewMode] = useState('json');
+const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
+  const [viewMode, setViewMode] = useState('table');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   
   const handleChangeViewMode = (event, newValue) => {
     setViewMode(newValue);
   };
   
-  // Check if results is an array
+  // Check if results is an array or has pagination metadata
   const isArray = Array.isArray(results);
-  // Count of items if it's an array
-  const count = isArray ? results.length : 1;
+  const isPaginated = results && results.metadata && Array.isArray(results.documents);
+  
+  // Total count of documents
+  let count = 0;
+  let totalPages = 0;
+  let documents = [];
+  
+  if (isPaginated) {
+    count = results.metadata.totalCount;
+    documents = results.documents;
+    totalPages = Math.ceil(count / pageSize);
+  } else if (isArray) {
+    count = results.length;
+    documents = results;
+    totalPages = Math.ceil(count / pageSize);
+  } else {
+    documents = results ? [results] : [];
+    count = documents.length;
+  }
+  
+  // For both table and JSON view, paginate the documents if needed
+  const paginatedDocuments = isArray && pageable && !isPaginated
+    ? documents.slice((page - 1) * pageSize, page * pageSize)
+    : documents;
   
   // Get fields for table view (from first item if array or from object if single result)
-  const fields = isArray && results.length > 0 
-    ? Object.keys(results[0] || {}) 
+  const fields = paginatedDocuments.length > 0 
+    ? Object.keys(paginatedDocuments[0] || {}) 
     : Object.keys(results || {});
+  
+  // Handle page change
+  const handlePageChange = (event, value) => {
+    setPage(value);
+    
+    // If we have a callback and this is not local pagination
+    if (onPageChange && isPaginated) {
+      onPageChange(value, pageSize);
+    }
+  };
+  
+  // Handle page size change
+  const handlePageSizeChange = (event) => {
+    const newPageSize = parseInt(event.target.value);
+    setPageSize(newPageSize);
+    setPage(1); // Reset to first page
+    
+    // If we have a callback and this is not local pagination
+    if (onPageChange && isPaginated) {
+      onPageChange(1, newPageSize);
+    }
+  };
+  
+  // Show pagination if we have an array with more than one page of items
+  const showPagination = (isArray || isPaginated) && count > pageSize;
+  
+  // Prepare the data to display in JSON view
+  const jsonViewData = isPaginated 
+    ? { ...results, documents: paginatedDocuments } // Keep metadata but use paginated documents
+    : (isArray ? paginatedDocuments : documents);
   
   return (
     <Box>
       <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', px: 2 }}>
         <Tabs value={viewMode} onChange={handleChangeViewMode}>
           <Tab value="json" label="JSON" />
-          {(isArray || typeof results === 'object') && <Tab value="table" label="Table" />}
+          {(isArray || isPaginated || typeof results === 'object') && <Tab value="table" label="Table" />}
         </Tabs>
         <Box sx={{ flexGrow: 1 }} />
         <Typography variant="body2" sx={{ alignSelf: 'center', pr: 2 }}>
-          {isArray ? `${count} documents` : 'Result'}
+          {isArray || isPaginated ? `${count} documents` : 'Result'}
         </Typography>
       </Box>
       
       <Box sx={{ p: 2 }}>
         {viewMode === 'json' && (
           <Box sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap' }}>
-            <SimpleJSONViewer data={results} />
+            <SimpleJSONViewer data={jsonViewData} />
           </Box>
         )}
         
@@ -131,16 +191,44 @@ const SingleResultDisplay = ({ results }) => {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {isArray ? (
-                  results.map((row, index) => (
-                    <ExpandableTableRow key={index} row={row} fields={fields} />
-                  ))
-                ) : (
-                  <ExpandableTableRow row={results} fields={fields} />
-                )}
+                {paginatedDocuments.map((row, index) => (
+                  <ExpandableTableRow key={index} row={row} fields={fields} />
+                ))}
               </TableBody>
             </Table>
           </TableContainer>
+        )}
+        
+        {showPagination && (
+          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <FormControl size="small" sx={{ minWidth: 120 }}>
+              <InputLabel id="page-size-select-label">Page Size</InputLabel>
+              <Select
+                labelId="page-size-select-label"
+                value={pageSize}
+                label="Page Size"
+                onChange={handlePageSizeChange}
+              >
+                <MenuItem value={10}>10</MenuItem>
+                <MenuItem value={20}>20</MenuItem>
+                <MenuItem value={50}>50</MenuItem>
+                <MenuItem value={100}>100</MenuItem>
+              </Select>
+            </FormControl>
+            
+            <Pagination 
+              count={totalPages} 
+              page={page} 
+              onChange={handlePageChange} 
+              color="primary" 
+              showFirstButton 
+              showLastButton
+            />
+            
+            <Typography variant="body2" color="text.secondary">
+              Showing {((page - 1) * pageSize) + 1}-{Math.min(page * pageSize, count)} of {count}
+            </Typography>
+          </Box>
         )}
       </Box>
     </Box>
@@ -301,7 +389,7 @@ const ExpandableTableRow = ({ row, fields }) => {
 };
 
 // Main ResultsDisplay component
-const ResultsDisplay = ({ results }) => {
+const ResultsDisplay = ({ results, onPageChange }) => {
   if (!results) {
     return (
       <Paper variant="outlined" sx={{ p: 3, bgcolor: 'background.paper' }}>
@@ -320,7 +408,11 @@ const ResultsDisplay = ({ results }) => {
       {isMultiQuery ? (
         <MultiQueryResultDisplay results={results.results} />
       ) : (
-        <SingleResultDisplay results={results} />
+        <SingleResultDisplay 
+          results={results} 
+          onPageChange={onPageChange}
+          pageable={true}
+        />
       )}
     </Paper>
   );

@@ -352,6 +352,7 @@ const ConnectionProvider = ({ children }) => {
             authType: connection.authType,
             username: connection.username,
             password: connection.password,
+            authSource: connection.authSource || 'admin',
             awsAccessKey: connection.awsAccessKey,
             awsSecretKey: connection.awsSecretKey,
             awsSessionToken: connection.awsSessionToken,

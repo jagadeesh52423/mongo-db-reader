@@ -12,8 +12,14 @@ import {
   MenuItem,
   Box,
   Alert,
-  CircularProgress
+  CircularProgress,
+  Typography,
+  Divider,
+  Link,
+  Tooltip,
+  IconButton
 } from '@mui/material';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
 const ConnectionDialog = ({ open, handleClose, initialData = null, isEditing = false }) => {
@@ -25,6 +31,7 @@ const ConnectionDialog = ({ open, handleClose, initialData = null, isEditing = f
     authType: 'None',
     username: '',
     password: '',
+    authSource: 'admin',
     awsAccessKey: '',
     awsSecretKey: '',
     awsSessionToken: '',
@@ -32,6 +39,7 @@ const ConnectionDialog = ({ open, handleClose, initialData = null, isEditing = f
   });
   
   const [feedback, setFeedback] = useState({ type: '', message: '' });
+  const [showConnectionHelp, setShowConnectionHelp] = useState(false);
 
   // Initialize form with data when editing
   useEffect(() => {
@@ -42,6 +50,7 @@ const ConnectionDialog = ({ open, handleClose, initialData = null, isEditing = f
         authType: initialData.authType || 'None',
         username: initialData.username || '',
         password: initialData.password || '',
+        authSource: initialData.authSource || 'admin',
         awsAccessKey: initialData.awsAccessKey || '',
         awsSecretKey: initialData.awsSecretKey || '',
         awsSessionToken: initialData.awsSessionToken || '',
@@ -98,6 +107,7 @@ const ConnectionDialog = ({ open, handleClose, initialData = null, isEditing = f
             authType: 'None',
             username: '',
             password: '',
+            authSource: 'admin',
             awsAccessKey: '',
             awsSecretKey: '',
             awsSessionToken: '',
@@ -115,11 +125,35 @@ const ConnectionDialog = ({ open, handleClose, initialData = null, isEditing = f
     <Dialog open={open} onClose={handleClose} maxWidth="md" fullWidth>
       <DialogTitle>
         {isEditing ? `Edit Connection: ${initialData?.name}` : 'Add New MongoDB Connection'}
+        <IconButton 
+          onClick={() => setShowConnectionHelp(!showConnectionHelp)}
+          style={{ float: 'right' }}
+          color="primary"
+        >
+          <HelpOutlineIcon />
+        </IconButton>
       </DialogTitle>
       <DialogContent>
         {feedback.message && (
           <Alert severity={feedback.type} sx={{ mb: 2 }}>
             {feedback.message}
+          </Alert>
+        )}
+        
+        {showConnectionHelp && (
+          <Alert severity="info" sx={{ mb: 2 }}>
+            <Typography variant="subtitle2">Connection Help:</Typography>
+            <Typography variant="body2">
+              • For basic connections without authentication:<br />
+              <code>mongodb://localhost:27017/dbname</code><br /><br />
+              
+              • With username and password in the URI (set Auth Type to "None"):<br />
+              <code>mongodb://username:password@localhost:27017/dbname?authSource=admin</code><br /><br />
+              
+              • With separate username/password fields (set Auth Type to "Basic" or "Legacy"):<br />
+              <code>mongodb://localhost:27017/dbname</code><br />
+              And provide username, password, and authSource separately.
+            </Typography>
           </Alert>
         )}
         
@@ -144,6 +178,11 @@ const ConnectionDialog = ({ open, handleClose, initialData = null, isEditing = f
           onChange={handleChange}
           sx={{ mb: 2 }}
           placeholder="mongodb://localhost:27017/mydb"
+          helperText={
+            formData.authType !== 'None' 
+              ? "Don't include username:password in the URI when using separate auth fields" 
+              : "Include username:password in the URI when Auth Type is 'None'"
+          }
         />
         
         <FormControl fullWidth sx={{ mb: 2 }}>
@@ -154,7 +193,7 @@ const ConnectionDialog = ({ open, handleClose, initialData = null, isEditing = f
             label="Authentication Type"
             onChange={handleChange}
           >
-            <MenuItem value="None">None</MenuItem>
+            <MenuItem value="None">None (credentials in URI if needed)</MenuItem>
             <MenuItem value="Basic">Basic (SCRAM-SHA-256)</MenuItem>
             <MenuItem value="Legacy">Legacy (SCRAM-SHA-1)</MenuItem>
             <MenuItem value="AWS">AWS IAM</MenuItem>
@@ -182,6 +221,17 @@ const ConnectionDialog = ({ open, handleClose, initialData = null, isEditing = f
               variant="outlined"
               value={formData.password}
               onChange={handleChange}
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              margin="dense"
+              name="authSource"
+              label="Auth Source (Database)"
+              fullWidth
+              variant="outlined"
+              value={formData.authSource}
+              onChange={handleChange}
+              helperText="Usually 'admin' unless configured differently"
             />
           </Box>
         )}

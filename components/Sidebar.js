@@ -254,7 +254,7 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
             Array.isArray(connectionData.collections) && 
             connectionData.collections.length > 0 ? (
               <List component="div" disablePadding>
-                {connectionData.collections.map(collection => (
+                {[...connectionData.collections].sort().map(collection => (
                   <ListItemButton 
                     key={`${connectionId}-${dbName}-${collection}`}
                     sx={{ pl: 8 }}
@@ -270,9 +270,8 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
                       }}
                     />
                   </ListItemButton>
-                ))
-              } 
-            </List>
+                ))}
+              </List>
             ) : (
               <ListItem sx={{ pl: 8 }}>
                 <ListItemText 

@@ -96,7 +96,7 @@ router.delete('/:id', async (req, res) => {
 
 // Test connection
 router.post('/test', async (req, res) => {
-  const { uri, authType, username, password, awsAccessKey, awsSecretKey, awsSessionToken, awsRegion } = req.body;
+  const { uri, authType, username, password, authSource, awsAccessKey, awsSecretKey, awsSessionToken, awsRegion } = req.body;
   
   try {
     let client;
@@ -137,7 +137,8 @@ router.post('/test', async (req, res) => {
           username,
           password
         },
-        authMechanism
+        authMechanism,
+        authSource: authSource || 'admin'
       });
     } else {
       // No authentication
@@ -152,6 +153,7 @@ router.post('/test', async (req, res) => {
     
     res.json({ success: true, message: 'Connection successful' });
   } catch (error) {
+    console.error("Test connection error:", error);
     res.status(400).json({ success: false, error: error.message });
   }
 });
@@ -161,6 +163,8 @@ router.post('/connect/:id', async (req, res) => {
   try {
     let connection;
     const connectionId = req.params.id;
+    
+    console.log(`Attempting to connect to MongoDB with connection ID: ${connectionId}`);
     
     // Check if the connection is already active and has a client
     if (global.activeConnections[connectionId]) {
@@ -208,6 +212,12 @@ router.post('/connect/:id', async (req, res) => {
         return res.status(400).json({ error: 'Connection details are required for local connections' });
       }
       
+      console.log(`Local connection details received: ${JSON.stringify({
+        ...req.body.connectionDetails,
+        password: req.body.connectionDetails.password ? '***' : undefined, // Hide password in logs
+        awsSecretKey: req.body.connectionDetails.awsSecretKey ? '***' : undefined // Hide AWS secret in logs
+      })}`);
+      
       connection = req.body.connectionDetails;
       // Store the connection details for future use
       global.localConnections[connectionId] = connection;
@@ -248,15 +258,32 @@ router.post('/connect/:id', async (req, res) => {
       });
     } else if (connection.authType === 'Basic' || connection.authType === 'Legacy') {
       const authMechanism = connection.authType === 'Basic' ? 'SCRAM-SHA-256' : 'SCRAM-SHA-1';
-      client = new MongoClient(connection.uri, {
+      
+      // Create the connection options with proper error handling for potentially missing fields
+      const connectionOptions = {
         useNewUrlParser: true,
         useUnifiedTopology: true,
-        auth: {
+        authMechanism
+      };
+      
+      // Only add auth if username and password are provided
+      if (connection.username && connection.password) {
+        connectionOptions.auth = {
           username: connection.username,
           password: connection.password
-        },
-        authMechanism
-      });
+        };
+        
+        // Only add authSource if it's defined
+        if (connection.authSource) {
+          connectionOptions.authSource = connection.authSource;
+        } else {
+          connectionOptions.authSource = 'admin'; // Default to admin if not specified
+        }
+      }
+      
+      console.log(`Connecting with auth mechanism: ${authMechanism}, authSource: ${connectionOptions.authSource || 'not specified'}`);
+      
+      client = new MongoClient(connection.uri, connectionOptions);
     } else {
       client = new MongoClient(connection.uri, {
         useNewUrlParser: true,
@@ -264,7 +291,10 @@ router.post('/connect/:id', async (req, res) => {
       });
     }
     
+    console.log(`Attempting to connect to: ${connection.uri.split('@').length > 1 ? connection.uri.split('@')[1] : connection.uri}`);
+    
     await client.connect();
+    console.log('Connection successful');
     
     // Store the active connection in the global object
     global.activeConnections[connectionId] = client;
@@ -294,7 +324,12 @@ router.post('/connect/:id', async (req, res) => {
     });
   } catch (error) {
     console.error("Connection error:", error);
-    res.status(500).json({ error: error.message });
+    // Provide more detailed error information in the response
+    res.status(500).json({ 
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined,
+      code: error.code
+    });
   }
 });
 

@@ -42,7 +42,12 @@ const TabPanel = () => {
     query: '', 
     results: null, 
     connectionId: null, // Track which connection this tab is associated with
-    database: null      // Track which database this tab is using
+    database: null,     // Track which database this tab is using
+    pagination: {
+      page: 1,
+      pageSize: 20,
+      totalCount: 0
+    }
   }]);
   const [activeTab, setActiveTab] = useState(0);
 
@@ -174,19 +179,75 @@ const TabPanel = () => {
   const handleUpdateQuery = (query) => {
     const newTabs = [...tabs];
     newTabs[activeTab].query = query;
+    // Reset pagination when query changes
+    newTabs[activeTab].pagination = {
+      page: 1,
+      pageSize: 20,
+      totalCount: 0
+    };
     setTabs(newTabs);
   };
 
   const handleQueryResult = (results) => {
     const newTabs = [...tabs];
     newTabs[activeTab].results = results;
+    
+    // Update pagination data if it's a paginated result
+    if (results && results.metadata) {
+      newTabs[activeTab].pagination = {
+        page: results.metadata.page || 1,
+        pageSize: results.metadata.pageSize || 20,
+        totalCount: results.metadata.totalCount || 0
+      };
+    }
+    
     setTabs(newTabs);
   };
 
-  const handleCollectionChange = (collection) => {
+  // Handle pagination change from the results display
+  const handlePageChange = (page, pageSize) => {
+    const currentTab = tabs[activeTab];
+    
+    if (!currentTab.connectionId || !currentTab.database) {
+      return;
+    }
+
+    // Update pagination state in the tab
     const newTabs = [...tabs];
-    newTabs[activeTab].selectedCollection = collection;
+    newTabs[activeTab].pagination = {
+      ...newTabs[activeTab].pagination,
+      page,
+      pageSize
+    };
     setTabs(newTabs);
+    
+    // Extract the collection and query from the current query string
+    try {
+      const queryText = currentTab.query;
+      const regex = /db\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\((.*)\)$/s;
+      const match = queryText.match(regex);
+      
+      if (match) {
+        const [, collection, operation] = match;
+        
+        // Only re-execute if this is a find operation
+        if (operation === 'find' || operation === 'aggregate') {
+          const queryEditor = document.getElementById(`query-editor-${currentTab.id}`);
+          
+          if (queryEditor) {
+            // Programmatically trigger query execution with pagination
+            const event = new CustomEvent('execute-query', {
+              detail: { 
+                pagination: { page, pageSize } 
+              }
+            });
+            queryEditor.dispatchEvent(event);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error handling pagination:', error);
+    }
   };
 
   // Get connection name from connection ID
@@ -318,13 +379,18 @@ const TabPanel = () => {
                 </Box>
               )}
               <QueryEditor 
+                id={`query-editor-${tab.id}`}
                 query={tab.query} 
                 onUpdateQuery={handleUpdateQuery}
                 onQueryResult={handleQueryResult}
                 connectionId={tab.connectionId}
                 database={tab.database}
+                pagination={tab.pagination}
               />
-              <ResultsDisplay results={tab.results} />
+              <ResultsDisplay 
+                results={tab.results} 
+                onPageChange={handlePageChange}
+              />
             </Box>
           )}
         </Box>

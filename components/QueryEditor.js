@@ -1,15 +1,17 @@
-import React, { useContext, useState, useRef } from 'react';
+import React, { useContext, useState, useRef, useEffect } from 'react';
 import { Box, Button, Paper, TextField, Typography, Tooltip, ButtonGroup, FormControl, Select } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
 const QueryEditor = ({ 
+  id,
   query, 
   onUpdateQuery, 
   onQueryResult, 
   connectionId,
-  database
+  database,
+  pagination = { page: 1, pageSize: 20 }
 }) => {
   const { executeQuery, connections } = useContext(ConnectionContext);
   const [error, setError] = useState(null);
@@ -17,6 +19,25 @@ const QueryEditor = ({
 
   // Find the connection object based on connectionId
   const connection = connections.find(conn => conn._id === connectionId);
+
+  // Listen for external trigger to execute query (for pagination)
+  useEffect(() => {
+    const handleExecuteQuery = (event) => {
+      const { pagination } = event.detail || {};
+      if (pagination) {
+        handleRunCurrentQueryWithPagination(pagination);
+      }
+    };
+
+    const element = document.getElementById(id);
+    if (element) {
+      element.addEventListener('execute-query', handleExecuteQuery);
+      
+      return () => {
+        element.removeEventListener('execute-query', handleExecuteQuery);
+      };
+    }
+  }, [id, query, connectionId, database]);
 
   // Example queries for different types that users can reference
   const getExampleQueries = () => {
@@ -205,22 +226,32 @@ const QueryEditor = ({
     return queries[0] || query;
   };
 
-  // Execute a single query
-  const executeSingleQuery = async (queryString) => {
+  // Execute a single query with pagination support
+  const executeSingleQuery = async (queryString, paginationParams = null) => {
     try {
       const parsedQuery = parseMongoQuery(queryString);
       
+      // Add pagination options for find and aggregate operations
+      const options = {
+        ...parsedQuery.options,
+        collection: parsedQuery.collection,
+        connectionId: connectionId,
+        database: database
+      };
+      
+      // Add pagination parameters if provided and operation supports it
+      if (paginationParams && ['find', 'aggregate'].includes(parsedQuery.type)) {
+        options.pagination = {
+          page: paginationParams.page || pagination.page,
+          pageSize: paginationParams.pageSize || pagination.pageSize
+        };
+      }
+      
       // Execute the query with the specified operation type
-      // We need to pass the tab-specific connection and database information
       const result = await executeQuery(
         parsedQuery.data,
         parsedQuery.type, 
-        {
-          ...parsedQuery.options,
-          collection: parsedQuery.collection,
-          connectionId: connectionId,
-          database: database
-        }
+        options
       );
       
       return {
@@ -240,8 +271,8 @@ const QueryEditor = ({
     }
   };
 
-  // Run the selected query or the one where the cursor is
-  const handleRunCurrentQuery = async () => {
+  // Run the selected query or the one where the cursor is with pagination
+  const handleRunCurrentQueryWithPagination = async (paginationParams = null) => {
     if (!connection || !database) {
       setError('Please connect to a database first');
       return;
@@ -253,58 +284,25 @@ const QueryEditor = ({
       return;
     }
 
-    // Check if the selected text contains multiple queries
-    const selectedQueries = splitQueries(selectedText);
-    
-    if (selectedQueries.length > 1) {
-      // Handle multiple queries in the selection
-      try {
-        const allResults = [];
-        let hasError = false;
-
-        for (let i = 0; i < selectedQueries.length; i++) {
-          const result = await executeSingleQuery(selectedQueries[i]);
-          allResults.push({
-            queryNumber: i + 1,
-            ...result
-          });
-          
-          if (!result.success) {
-            hasError = true;
-          }
-        }
-
-        onQueryResult({
-          multiQuery: true,
-          results: allResults
-        });
-
-        if (hasError) {
-          setError('One or more queries failed. Check the results for details.');
-        } else {
-          setError(null);
-        }
-      } catch (err) {
-        setError(err.message);
+    try {
+      const result = await executeSingleQuery(selectedText, paginationParams);
+      
+      if (result.success) {
+        onQueryResult(result.result);
+        setError(null);
+      } else {
+        setError(result.error);
         onQueryResult(null);
       }
-    } else {
-      // Handle single query case
-      try {
-        const result = await executeSingleQuery(selectedText);
-        
-        if (result.success) {
-          onQueryResult(result.result);
-          setError(null);
-        } else {
-          setError(result.error);
-          onQueryResult(null);
-        }
-      } catch (err) {
-        setError(err.message);
-        onQueryResult(null);
-      }
+    } catch (err) {
+      setError(err.message);
+      onQueryResult(null);
     }
+  };
+
+  // Run the selected query or the one where the cursor is
+  const handleRunCurrentQuery = () => {
+    handleRunCurrentQueryWithPagination();
   };
 
   // Run all queries in the editor
@@ -352,13 +350,16 @@ const QueryEditor = ({
   };
 
   return (
-    <Box sx={{ mb: 3 }}>
-      <Box sx={{ display: 'flex', mb: 2, alignItems: 'center', justifyContent: 'space-between' }}>
-        <Typography variant="body2" color="text.secondary">
-          Write MongoDB shell-style queries (db.collection.operation)
-        </Typography>
+    <Box sx={{ mb: 3 }} id={id}>
+      <Box sx={{ display: 'flex', mb: 1, alignItems: 'center', justifyContent: 'space-between' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+          <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8rem' }}>
+            Connection: <strong>{connection?.name || 'None'}</strong> {database && <>| <strong>{database}</strong></>}
+            {pagination && pagination.page > 1 && <> | Page: <strong>{pagination.page}</strong></>}
+          </Typography>
+        </Box>
         
-        <ButtonGroup variant="contained" color="primary">
+        <ButtonGroup variant="contained" color="primary" size="small">
           <Tooltip title="Run the query where your cursor is or your selected text">
             <Button 
               startIcon={<PlayArrowIcon />}
@@ -378,19 +379,12 @@ const QueryEditor = ({
         </ButtonGroup>
       </Box>
       
-      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-        Use standard MongoDB shell syntax. Separate multiple queries with semicolons (;).
-        Example: db.users.find({'{name: "John"}'})<br/>
-        Connection: <strong>{connection?.name || 'None'}</strong> | 
-        Database: <strong>{database || 'None'}</strong>
-      </Typography>
-      
       <Paper variant="outlined" sx={{ mb: 2 }}>
         <TextField
           inputRef={editorRef}
           multiline
           fullWidth
-          minRows={6}
+          minRows={8}
           maxRows={20}
           value={query || ''}
           onChange={(e) => onUpdateQuery(e.target.value)}
