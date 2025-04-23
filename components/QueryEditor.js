@@ -77,6 +77,14 @@ const QueryEditor = ({
         }
       }
       
+      // Check for .count() method chained after find()
+      let isCountAfterFind = false;
+      if (queryStr.endsWith('.count()')) {
+        isCountAfterFind = true;
+        // Remove the .count() part for initial parsing
+        queryStr = queryStr.replace(/\.count\(\)$/, '');
+      }
+      
       // Match the MongoDB shell pattern: db.collection.operation(parameters)
       const regex = /db\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\((.*)\)$/s;
       const match = queryStr.match(regex);
@@ -86,6 +94,12 @@ const QueryEditor = ({
       }
       
       const [, collection, operation, paramsStr] = match;
+      
+      // If .count() was chained after find(), we should execute a count operation
+      let effectiveOperation = operation;
+      if (isCountAfterFind && operation === 'find') {
+        effectiveOperation = 'countDocuments';
+      }
       
       // Try to parse the parameters as JSON
       let params;
@@ -181,9 +195,9 @@ const QueryEditor = ({
         'distinct': 'distinct'
       };
       
-      const apiOperation = operationMap[operation];
+      const apiOperation = operationMap[effectiveOperation];
       if (!apiOperation) {
-        throw new Error(`Unsupported operation: ${operation}`);
+        throw new Error(`Unsupported operation: ${effectiveOperation}`);
       }
       
       // Format the parameters based on the operation type

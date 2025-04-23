@@ -746,6 +746,24 @@ const ResultsDisplay = ({ results, onPageChange }) => {
   // Check if this is a multi-query result
   const isMultiQuery = results && results.multiQuery && Array.isArray(results.results);
   
+  // Handle numeric results (like count operations)
+  if (typeof results === 'number') {
+    return (
+      <Paper variant="outlined" sx={{ bgcolor: 'background.paper', flexGrow: 1, overflow: 'auto', p: 2 }}>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', px: 2, pb: 1 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 'medium' }}>
+            Count Result
+          </Typography>
+        </Box>
+        <Box sx={{ p: 2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Typography variant="h4" sx={{ fontWeight: 'bold' }}>
+            {results}
+          </Typography>
+        </Box>
+      </Paper>
+    );
+  }
+  
   return (
     <Paper variant="outlined" sx={{ bgcolor: 'background.paper', flexGrow: 1, overflow: 'auto' }}>
       {isMultiQuery ? (
