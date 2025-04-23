@@ -1,8 +1,10 @@
 import React, { useContext, useState, useRef, useEffect } from 'react';
-import { Box, Button, Paper, TextField, Typography, Tooltip, ButtonGroup, FormControl, Select } from '@mui/material';
+import { Box, Button, Paper, TextField, Typography, Tooltip, ButtonGroup, FormControl, Select, IconButton } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { ConnectionContext } from '../contexts/ConnectionContext';
+import MongoHelpDrawer from './MongoHelpDrawer';
 
 const QueryEditor = ({ 
   id,
@@ -16,6 +18,12 @@ const QueryEditor = ({
   const { executeQuery, connections } = useContext(ConnectionContext);
   const [error, setError] = useState(null);
   const editorRef = useRef(null);
+  const [helpDrawerOpen, setHelpDrawerOpen] = useState(false);
+
+  // Toggle help drawer
+  const toggleHelpDrawer = () => {
+    setHelpDrawerOpen(!helpDrawerOpen);
+  };
 
   // Find the connection object based on connectionId
   const connection = connections.find(conn => conn._id === connectionId);
@@ -58,18 +66,47 @@ const QueryEditor = ({
       // Remove any comments
       queryStr = queryStr.replace(/\/\/.*$/gm, '').trim();
       
+      // Track cursor operations
+      const cursorOperations = [];
+      
+      // Use a regex to find cursor operations chained to a query
+      const cursorMethodRegex = /\.(addOption|allowDiskUse|allowPartialResults|batchSize|close|isClosed|collation|comment|count|explain|forEach|hasNext|hint|isExhausted|itcount|limit|map|max|maxAwaitTimeMS|maxTimeMS|min|next|noCursorTimeout|objsLeftInBatch|pretty|readConcern|readPref|returnKey|showRecordId|size|skip|sort|tailable|toArray|tryNext)\(([^)]*)\)/g;
+      
+      // Find all cursor operations
+      let lastIndex = 0;
+      let match;
+      let baseQuery = queryStr;
+      
+      while ((match = cursorMethodRegex.exec(queryStr)) !== null) {
+        const fullMatch = match[0];
+        const cursorMethod = match[1];
+        const cursorArgs = match[2];
+        
+        // Store the cursor operation
+        cursorOperations.push({
+          method: cursorMethod,
+          args: cursorArgs
+        });
+        
+        // Track where this match ends for later extraction of base query
+        lastIndex = match.index + fullMatch.length;
+      }
+      
+      // If we found cursor operations, extract the base query
+      if (cursorOperations.length > 0) {
+        // The base query is everything up to the first cursor operation
+        const firstOpIndex = queryStr.indexOf(`.${cursorOperations[0].method}`);
+        baseQuery = queryStr.substring(0, firstOpIndex);
+      }
+      
       // Look for sort operator after the main query
       let sortOptions = null;
-      const sortRegex = /\.sort\((.+)\)$/;
-      const sortMatch = queryStr.match(sortRegex);
+      let sortOp = cursorOperations.find(op => op.method === 'sort');
       
-      if (sortMatch) {
-        // Remove the sort part from the original query string for initial parsing
-        queryStr = queryStr.replace(sortRegex, '');
-        
+      if (sortOp) {
         try {
           // Parse the sort options
-          const sortStr = sortMatch[1]
+          const sortStr = sortOp.args
             .replace(/(\w+):/g, '"$1":'); // Convert keys to quoted strings for JSON parsing
           sortOptions = JSON.parse(sortStr);
         } catch (e) {
@@ -77,28 +114,31 @@ const QueryEditor = ({
         }
       }
       
-      // Check for .count() method chained after find()
-      let isCountAfterFind = false;
-      if (queryStr.endsWith('.count()')) {
-        isCountAfterFind = true;
-        // Remove the .count() part for initial parsing
-        queryStr = queryStr.replace(/\.count\(\)$/, '');
-      }
-      
       // Match the MongoDB shell pattern: db.collection.operation(parameters)
       const regex = /db\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\((.*)\)$/s;
-      const match = queryStr.match(regex);
+      const baseMatch = baseQuery.match(regex);
       
-      if (!match) {
+      if (!baseMatch) {
         throw new Error('Invalid MongoDB query format. Use: db.collection.operation(parameters)');
       }
       
-      const [, collection, operation, paramsStr] = match;
+      const [, collection, operation, paramsStr] = baseMatch;
       
-      // If .count() was chained after find(), we should execute a count operation
+      // Determine the effective operation based on cursor operations
       let effectiveOperation = operation;
-      if (isCountAfterFind && operation === 'find') {
-        effectiveOperation = 'countDocuments';
+      
+      // Handle special cursor operations that change the operation type
+      if (operation === 'find') {
+        // Check for specific cursor methods that change operation behavior
+        const countOp = cursorOperations.find(op => op.method === 'count');
+        const sizeOp = cursorOperations.find(op => op.method === 'size');
+        const itcountOp = cursorOperations.find(op => op.method === 'itcount');
+        
+        if (countOp) {
+          effectiveOperation = 'countDocuments';
+        } else if (sizeOp || itcountOp) {
+          effectiveOperation = 'count';
+        }
       }
       
       // Try to parse the parameters as JSON
@@ -233,17 +273,82 @@ const QueryEditor = ({
           throw new Error(`Unsupported operation mapping: ${apiOperation}`);
       }
       
-      // Add the sort options if present and operation supports it
+      // Process additional cursor operations and add to options
       const options = operation.endsWith('Many') ? { many: true } : {};
-      if (sortOptions && ['find', 'findOne', 'aggregate'].includes(apiOperation)) {
-        options.sort = sortOptions;
+      
+      // Add cursor options based on the cursor operations
+      for (const cursorOp of cursorOperations) {
+        switch (cursorOp.method) {
+          case 'sort':
+            if (sortOptions && ['find', 'findOne', 'aggregate'].includes(apiOperation)) {
+              options.sort = sortOptions;
+            }
+            break;
+          case 'limit':
+            if (['find', 'findOne', 'aggregate'].includes(apiOperation)) {
+              try {
+                options.limit = parseInt(cursorOp.args);
+              } catch (e) {
+                console.warn('Invalid limit value:', cursorOp.args);
+              }
+            }
+            break;
+          case 'skip':
+            if (['find', 'findOne', 'aggregate'].includes(apiOperation)) {
+              try {
+                options.skip = parseInt(cursorOp.args);
+              } catch (e) {
+                console.warn('Invalid skip value:', cursorOp.args);
+              }
+            }
+            break;
+          case 'hint':
+            if (['find', 'findOne', 'aggregate', 'count'].includes(apiOperation)) {
+              try {
+                const hintStr = cursorOp.args.replace(/(\w+):/g, '"$1":');
+                options.hint = JSON.parse(hintStr);
+              } catch (e) {
+                console.warn('Invalid hint value:', cursorOp.args);
+              }
+            }
+            break;
+          case 'comment':
+            if (['find', 'findOne', 'aggregate', 'count'].includes(apiOperation)) {
+              try {
+                // Remove quotes if they exist
+                let comment = cursorOp.args.trim();
+                if ((comment.startsWith('"') && comment.endsWith('"')) || 
+                    (comment.startsWith("'") && comment.endsWith("'"))) {
+                  comment = comment.substring(1, comment.length - 1);
+                }
+                options.comment = comment;
+              } catch (e) {
+                console.warn('Invalid comment value:', cursorOp.args);
+              }
+            }
+            break;
+          case 'maxTimeMS':
+            if (['find', 'findOne', 'aggregate', 'count'].includes(apiOperation)) {
+              try {
+                options.maxTimeMS = parseInt(cursorOp.args);
+              } catch (e) {
+                console.warn('Invalid maxTimeMS value:', cursorOp.args);
+              }
+            }
+            break;
+          case 'pretty':
+            options.pretty = true;
+            break;
+          // Add more cursor operations as needed
+        }
       }
       
       return {
         collection,
         type: apiOperation,
         data: queryData,
-        options: options
+        options: options,
+        cursorOperations: cursorOperations
       };
     } catch (e) {
       throw new Error(`Error parsing MongoDB query: ${e.message}`);
@@ -457,6 +562,11 @@ const QueryEditor = ({
             Connection: <strong>{connection?.name || 'None'}</strong> {database && <>| <strong>{database}</strong></>}
             {pagination && pagination.page > 1 && <> | Page: <strong>{pagination.page}</strong></>}
           </Typography>
+          <Tooltip title="MongoDB Query Help">
+            <IconButton onClick={toggleHelpDrawer} size="small" color="primary" sx={{ ml: 1 }}>
+              <HelpOutlineIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
         </Box>
         
         <ButtonGroup variant="contained" color="primary" size="small">
@@ -507,6 +617,12 @@ const QueryEditor = ({
           {error}
         </Paper>
       )}
+      
+      {/* MongoDB Help Drawer */}
+      <MongoHelpDrawer 
+        open={helpDrawerOpen}
+        onClose={() => setHelpDrawerOpen(false)}
+      />
     </Box>
   );
 };

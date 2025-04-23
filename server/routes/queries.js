@@ -52,6 +52,21 @@ router.post('/execute-by-token', validateSession, async (req, res) => {
     // Extract options besides pagination to pass to MongoDB
     const mongoOptions = { ...options };
     delete mongoOptions.pagination;
+    delete mongoOptions.collection; // Remove collection from options
+    
+    // Apply common cursor options
+    if (options.maxTimeMS) mongoOptions.maxTimeMS = options.maxTimeMS;
+    if (options.comment) mongoOptions.comment = options.comment;
+    if (options.hint) mongoOptions.hint = options.hint;
+    if (options.readConcern) mongoOptions.readConcern = options.readConcern;
+    if (options.readPreference || options.readPref) mongoOptions.readPreference = options.readPreference || options.readPref;
+    if (options.collation) mongoOptions.collation = options.collation;
+    if (options.allowDiskUse !== undefined) mongoOptions.allowDiskUse = options.allowDiskUse;
+    if (options.noCursorTimeout !== undefined) mongoOptions.noCursorTimeout = options.noCursorTimeout;
+    if (options.tailable !== undefined) mongoOptions.tailable = options.tailable;
+    if (options.returnKey !== undefined) mongoOptions.returnKey = options.returnKey;
+    if (options.showRecordId !== undefined) mongoOptions.showRecordId = options.showRecordId;
+    if (options.sort) mongoOptions.sort = options.sort;
     
     switch (type) {
       case 'find':
@@ -249,6 +264,21 @@ router.post('/execute', async (req, res) => {
     // Extract options besides pagination to pass to MongoDB
     const mongoOptions = { ...options };
     delete mongoOptions.pagination;
+    delete mongoOptions.collection; // Remove collection from options
+    
+    // Apply common cursor options
+    if (options.maxTimeMS) mongoOptions.maxTimeMS = options.maxTimeMS;
+    if (options.comment) mongoOptions.comment = options.comment;
+    if (options.hint) mongoOptions.hint = options.hint;
+    if (options.readConcern) mongoOptions.readConcern = options.readConcern;
+    if (options.readPreference || options.readPref) mongoOptions.readPreference = options.readPreference || options.readPref;
+    if (options.collation) mongoOptions.collation = options.collation;
+    if (options.allowDiskUse !== undefined) mongoOptions.allowDiskUse = options.allowDiskUse;
+    if (options.noCursorTimeout !== undefined) mongoOptions.noCursorTimeout = options.noCursorTimeout;
+    if (options.tailable !== undefined) mongoOptions.tailable = options.tailable;
+    if (options.returnKey !== undefined) mongoOptions.returnKey = options.returnKey;
+    if (options.showRecordId !== undefined) mongoOptions.showRecordId = options.showRecordId;
+    if (options.sort) mongoOptions.sort = options.sort;
     
     switch (type) {
       case 'find':
@@ -403,6 +433,21 @@ router.post('/:connectionId/:dbName/:collectionName', async (req, res) => {
     // Extract options besides pagination to pass to MongoDB
     const mongoOptions = { ...options };
     delete mongoOptions.pagination;
+    delete mongoOptions.collection; // Remove collection from options
+    
+    // Apply common cursor options
+    if (options.maxTimeMS) mongoOptions.maxTimeMS = options.maxTimeMS;
+    if (options.comment) mongoOptions.comment = options.comment;
+    if (options.hint) mongoOptions.hint = options.hint;
+    if (options.readConcern) mongoOptions.readConcern = options.readConcern;
+    if (options.readPreference || options.readPref) mongoOptions.readPreference = options.readPreference || options.readPref;
+    if (options.collation) mongoOptions.collation = options.collation;
+    if (options.allowDiskUse !== undefined) mongoOptions.allowDiskUse = options.allowDiskUse;
+    if (options.noCursorTimeout !== undefined) mongoOptions.noCursorTimeout = options.noCursorTimeout;
+    if (options.tailable !== undefined) mongoOptions.tailable = options.tailable;
+    if (options.returnKey !== undefined) mongoOptions.returnKey = options.returnKey;
+    if (options.showRecordId !== undefined) mongoOptions.showRecordId = options.showRecordId;
+    if (options.sort) mongoOptions.sort = options.sort;
     
     switch (type) {
       case 'find':
