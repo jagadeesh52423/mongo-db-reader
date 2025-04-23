@@ -46,10 +46,13 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
     connectionId: null, 
     isConnected: false 
   });
-
+  
   // Add state for expanded connections and databases
   const [expandedConnections, setExpandedConnections] = useState({});
   const [expandedDatabases, setExpandedDatabases] = useState({});
+  
+  // Track which databases have already loaded collections
+  const [loadedCollections, setLoadedCollections] = useState({});
 
   // Listen for connection events
   useEffect(() => {
@@ -150,13 +153,6 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
       return;
     }
     
-    // Mark this database as loading collections
-    const loadingKey = `${connectionId}:${dbName}`;
-    setCollectionsLoading(prev => ({
-      ...prev,
-      [loadingKey]: true
-    }));
-    
     // Set active database
     setActiveDatabase(dbName, connectionId);
     
@@ -172,17 +168,36 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
       [dbKey]: true
     }));
     
-    // Fetch collections for this database
-    try {
-      await fetchCollectionsByToken(connectionId, dbName);
-    } catch (error) {
-      console.error("Error fetching collections:", error);
-    } finally {
-      // Clear loading state for this database
+    // Check if we have already loaded collections for this database
+    const collectionsKey = `${connectionId}:${dbName}`;
+    const hasLoadedCollections = loadedCollections[collectionsKey];
+    
+    // Only fetch collections if they haven't been loaded before
+    if (!hasLoadedCollections) {
+      // Mark this database as loading collections
       setCollectionsLoading(prev => ({
         ...prev,
-        [loadingKey]: false
+        [collectionsKey]: true
       }));
+      
+      // Fetch collections for this database
+      try {
+        await fetchCollectionsByToken(connectionId, dbName);
+        
+        // Mark collections as loaded for this database
+        setLoadedCollections(prev => ({
+          ...prev,
+          [collectionsKey]: true
+        }));
+      } catch (error) {
+        console.error("Error fetching collections:", error);
+      } finally {
+        // Clear loading state for this database
+        setCollectionsLoading(prev => ({
+          ...prev,
+          [collectionsKey]: false
+        }));
+      }
     }
   };
 
@@ -234,7 +249,7 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
           />
         </ListItemButton>
         
-        <Collapse in={isDatabaseExpanded} timeout="auto" unmountOnExit>
+        <div style={{ display: isDatabaseExpanded ? 'block' : 'none' }}>
           {isLoadingCollections ? (
             <ListItem sx={{ pl: 8 }}>
               <ListItemIcon sx={{ minWidth: 30 }}>
@@ -284,7 +299,7 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
               </ListItem>
             )
           )}
-        </Collapse>
+        </div>
       </React.Fragment>
     );
   };
@@ -401,13 +416,13 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
                   </ListItemButton>
                   
                   {/* Databases List */}
-                  <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                  <div style={{ display: isExpanded ? 'block' : 'none' }}>
                     <List component="div" disablePadding>
                       {connectionData.databases && connectionData.databases.map(dbName => 
                         renderDatabase(connectionId, dbName, connectionData)
                       )}
                     </List>
-                  </Collapse>
+                  </div>
                 </React.Fragment>
               );
             })}

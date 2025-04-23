@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Box, 
   Paper, 
@@ -23,7 +23,8 @@ import {
   Select,
   MenuItem,
   InputLabel,
-  Stack
+  Stack,
+  Menu
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -334,6 +335,12 @@ const MultiQueryResultDisplay = ({ results }) => {
 // Component for table rows that can expand to show nested objects
 const ExpandableTableRow = ({ row, fields }) => {
   const [expanded, setExpanded] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [selectedField, setSelectedField] = useState(null);
+  const [selectedValue, setSelectedValue] = useState(null);
+  
+  // Create a ref to the query editor that will be updated
+  const queryEditorRef = useRef(null);
   
   const toggleExpand = () => {
     setExpanded(!expanded);
@@ -345,6 +352,211 @@ const ExpandableTableRow = ({ row, fields }) => {
     typeof row[field] === 'object'
   );
   
+  // Determine the data type of a value
+  const getFieldType = (value) => {
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    
+    const type = typeof value;
+    
+    // Check if it's a date string (expanded pattern matching)
+    if (type === 'string') {
+      // ISO date format
+      const isoDatePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/;
+      
+      // Standard date formats YYYY-MM-DD or YYYY/MM/DD
+      const standardDatePattern = /^\d{4}[-/](0?[1-9]|1[012])[-/](0?[1-9]|[12][0-9]|3[01])$/;
+      
+      // MongoDB timestamp format YYYY/MM/DD HH:MM:SS.mmm
+      const mongoTimestampPattern = /^\d{4}\/\d{2}\/\d{2}\s\d{2}:\d{2}:\d{2}(?:\.\d+)?$/;
+      
+      // Another common format MM/DD/YYYY
+      const americanDatePattern = /^(0?[1-9]|1[012])\/(0?[1-9]|[12][0-9]|3[01])\/\d{4}$/;
+      
+      if (isoDatePattern.test(value) || 
+          standardDatePattern.test(value) || 
+          mongoTimestampPattern.test(value) ||
+          americanDatePattern.test(value)) {
+        return 'date';
+      }
+      return 'string';
+    }
+    
+    if (type === 'number') return 'number';
+    if (type === 'boolean') return 'boolean';
+    
+    return type;
+  };
+  
+  // Handle right-click on a cell
+  const handleContextMenu = (event, field, value) => {
+    // Prevent the default context menu
+    event.preventDefault();
+    
+    // Only show context menu for non-complex values
+    if (value === null || typeof value !== 'object') {
+      setContextMenu({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      setSelectedField(field);
+      setSelectedValue(value);
+    }
+  };
+  
+  // Close the context menu
+  const handleCloseContextMenu = () => {
+    setContextMenu(null);
+    setSelectedField(null);
+    setSelectedValue(null);
+  };
+  
+  // Helper function to copy to clipboard
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text)
+      .then(() => {
+        console.log('Copied to clipboard successfully');
+      })
+      .catch(err => {
+        console.error('Error copying to clipboard: ', err);
+      });
+  };
+  
+  // Handle copy value
+  const handleCopyValue = () => {
+    const value = row[selectedField];
+    const stringValue = value !== null && value !== undefined ? String(value) : '';
+    copyToClipboard(stringValue);
+    handleCloseContextMenu();
+  };
+  
+  // Handle copy record (entire row)
+  const handleCopyRecord = () => {
+    copyToClipboard(JSON.stringify(row, null, 2));
+    handleCloseContextMenu();
+  };
+  
+  // Handle copy field (key:value)
+  const handleCopyField = () => {
+    const value = row[selectedField];
+    
+    let formattedValue = '';
+    if (value === null) {
+      formattedValue = 'null';
+    } else if (value === undefined) {
+      formattedValue = 'undefined';
+    } else if (typeof value === 'string') {
+      formattedValue = `"${value}"`;
+    } else {
+      formattedValue = String(value);
+    }
+    
+    // Format as JSON key-value pair
+    copyToClipboard(`"${selectedField}": ${formattedValue}`);
+    handleCloseContextMenu();
+  };
+  
+  // Format the value appropriately for MongoDB query syntax
+  const formatValueForQuery = (value, operator) => {
+    const fieldType = getFieldType(value);
+    
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    
+    if (fieldType === 'string') {
+      // Handle regex operators specially
+      if (operator === '$regex') {
+        return `"${value}"`;
+      } else if (operator === '$regex^') {
+        return `"^${value}"`;
+      } else if (operator === '$regex$') {
+        return `"${value}$"`;
+      } else {
+        return `"${value}"`;
+      }
+    } else if (fieldType === 'date') {
+      // Format as date for MongoDB
+      return `"${value}"`;
+    } else {
+      // Numbers and booleans don't need quotes
+      return String(value);
+    }
+  };
+  
+  // Handle query option selection
+  const handleQueryOption = (option) => {
+    const value = row[selectedField];
+    const formattedValue = formatValueForQuery(value, option.value);
+    let querySnippet = '';
+    
+    // Map the option to the appropriate MongoDB query syntax without enclosing braces
+    switch (option.value) {
+      case '$eq':
+        querySnippet = `"${selectedField}": ${formattedValue}`;
+        break;
+      case '$ne':
+        querySnippet = `"${selectedField}": { "$ne": ${formattedValue} }`;
+        break;
+      case '$gt':
+        querySnippet = `"${selectedField}": { "$gt": ${formattedValue} }`;
+        break;
+      case '$gte':
+        querySnippet = `"${selectedField}": { "$gte": ${formattedValue} }`;
+        break;
+      case '$lt':
+        querySnippet = `"${selectedField}": { "$lt": ${formattedValue} }`;
+        break;
+      case '$lte':
+        querySnippet = `"${selectedField}": { "$lte": ${formattedValue} }`;
+        break;
+      case '$in':
+        querySnippet = `"${selectedField}": { "$in": [${formattedValue}] }`;
+        break;
+      case '$nin':
+        querySnippet = `"${selectedField}": { "$nin": [${formattedValue}] }`;
+        break;
+      case '$regex':
+        querySnippet = `"${selectedField}": { "$regex": ${formattedValue}, "$options": "i" }`;
+        break;
+      case '$regex^':
+        querySnippet = `"${selectedField}": { "$regex": "^${value}", "$options": "i" }`;
+        break;
+      case '$regex$':
+        querySnippet = `"${selectedField}": { "$regex": "${value}$", "$options": "i" }`;
+        break;
+      case 'null':
+        querySnippet = `"${selectedField}": null`;
+        break;
+      case 'notNull':
+        querySnippet = `"${selectedField}": { "$ne": null }`;
+        break;
+      case 'true':
+        querySnippet = `"${selectedField}": true`;
+        break;
+      case 'false':
+        querySnippet = `"${selectedField}": false`;
+        break;
+      default:
+        querySnippet = `"${selectedField}": ${formattedValue}`;
+    }
+    
+    // Copy the query snippet to clipboard
+    copyToClipboard(querySnippet);
+    
+    // Create a custom event to suggest this query in the editor
+    const event = new CustomEvent('suggest-query', {
+      detail: { 
+        query: querySnippet,
+        field: selectedField,
+        operator: option.value,
+        value: value
+      }
+    });
+    window.dispatchEvent(event);
+    
+    handleCloseContextMenu();
+  };
+  
   return (
     <>
       <TableRow>
@@ -353,7 +565,16 @@ const ExpandableTableRow = ({ row, fields }) => {
           const isComplex = value !== null && typeof value === 'object';
           
           return (
-            <TableCell key={field}>
+            <TableCell 
+              key={field}
+              onContextMenu={(e) => handleContextMenu(e, field, value)}
+              sx={{ 
+                cursor: isComplex ? 'default' : 'pointer',
+                '&:hover': { 
+                  backgroundColor: isComplex ? 'inherit' : 'rgba(0, 0, 0, 0.04)' 
+                }
+              }}
+            >
               {isComplex ? (
                 <Box sx={{ display: 'flex', alignItems: 'center' }}>
                   <Typography variant="body2" color="text.secondary">
@@ -366,7 +587,16 @@ const ExpandableTableRow = ({ row, fields }) => {
                   )}
                 </Box>
               ) : (
-                value !== undefined ? String(value) : ''
+                <Box 
+                  component="span" 
+                  sx={{ 
+                    display: 'inline-block', 
+                    width: '100%',
+                    cursor: 'pointer'
+                  }}
+                >
+                  {value !== undefined ? String(value) : ''}
+                </Box>
               )}
             </TableCell>
           );
@@ -384,7 +614,120 @@ const ExpandableTableRow = ({ row, fields }) => {
           </TableCell>
         </TableRow>
       )}
+      
+      {contextMenu && (
+        <TableCellContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          onClose={handleCloseContextMenu}
+          onCopyValue={handleCopyValue}
+          onCopyRecord={handleCopyRecord}
+          onCopyField={handleCopyField}
+          onQueryOption={handleQueryOption}
+          fieldType={getFieldType(selectedValue)}
+        />
+      )}
     </>
+  );
+};
+
+// Component for context menu on table cells
+const TableCellContextMenu = ({ x, y, onClose, onCopyValue, onCopyRecord, onCopyField, onQueryOption, fieldType }) => {
+  // Position the menu at the mouse position
+  const menuPosition = {
+    left: x,
+    top: y
+  };
+
+  // Define query options based on field type
+  const getQueryOptions = () => {
+    if (fieldType === 'string') {
+      return [
+        { label: 'Equals', value: '$eq' },
+        { label: 'Not Equals', value: '$ne' },
+        { label: 'Contains', value: '$regex' },
+        { label: 'Starts With', value: '$regex^' },
+        { label: 'Ends With', value: '$regex$' },
+      ];
+    } else if (fieldType === 'number') {
+      return [
+        { label: 'Equals', value: '$eq' },
+        { label: 'Not Equals', value: '$ne' },
+        { label: 'Greater Than', value: '$gt' },
+        { label: 'Greater Than or Equals', value: '$gte' },
+        { label: 'Less Than', value: '$lt' },
+        { label: 'Less Than or Equals', value: '$lte' },
+        { label: 'In List', value: '$in' },
+        { label: 'Not In List', value: '$nin' },
+      ];
+    } else if (fieldType === 'date') {
+      return [
+        { label: 'Equals', value: '$eq' },
+        { label: 'Not Equals', value: '$ne' },
+        { label: 'After', value: '$gt' },
+        { label: 'After or On', value: '$gte' },
+        { label: 'Before', value: '$lt' },
+        { label: 'Before or On', value: '$lte' },
+      ];
+    } else if (fieldType === 'boolean') {
+      return [
+        { label: 'Is True', value: 'true' },
+        { label: 'Is False', value: 'false' },
+      ];
+    } else if (fieldType === 'null') {
+      return [
+        { label: 'Is Null', value: 'null' },
+        { label: 'Is Not Null', value: 'notNull' },
+      ];
+    } else {
+      // Default options for other types
+      return [
+        { label: 'Equals', value: '$eq' },
+        { label: 'Not Equals', value: '$ne' },
+      ];
+    }
+  };
+
+  const queryOptions = getQueryOptions();
+
+  // Handle query option selection
+  const handleQueryOption = (option) => {
+    onQueryOption(option);
+    onClose();
+  };
+
+  return (
+    <Menu
+      open={true}
+      onClose={onClose}
+      anchorReference="anchorPosition"
+      anchorPosition={menuPosition}
+    >
+      <MenuItem onClick={onCopyValue}>
+        <Typography variant="body2">Copy Value</Typography>
+      </MenuItem>
+      <MenuItem onClick={onCopyRecord}>
+        <Typography variant="body2">Copy Record</Typography>
+      </MenuItem>
+      <MenuItem onClick={onCopyField}>
+        <Typography variant="body2">Copy Field</Typography>
+      </MenuItem>
+      
+      {/* Query Options Submenu */}
+      <Divider />
+      <MenuItem>
+        <Typography variant="body2" sx={{ color: 'text.secondary' }}>Query Options</Typography>
+      </MenuItem>
+      {queryOptions.map((option) => (
+        <MenuItem 
+          key={option.value} 
+          onClick={() => handleQueryOption(option)}
+          sx={{ pl: 3 }}
+        >
+          <Typography variant="body2">{option.label}</Typography>
+        </MenuItem>
+      ))}
+    </Menu>
   );
 };
 

@@ -58,6 +58,25 @@ const QueryEditor = ({
       // Remove any comments
       queryStr = queryStr.replace(/\/\/.*$/gm, '').trim();
       
+      // Look for sort operator after the main query
+      let sortOptions = null;
+      const sortRegex = /\.sort\((.+)\)$/;
+      const sortMatch = queryStr.match(sortRegex);
+      
+      if (sortMatch) {
+        // Remove the sort part from the original query string for initial parsing
+        queryStr = queryStr.replace(sortRegex, '');
+        
+        try {
+          // Parse the sort options
+          const sortStr = sortMatch[1]
+            .replace(/(\w+):/g, '"$1":'); // Convert keys to quoted strings for JSON parsing
+          sortOptions = JSON.parse(sortStr);
+        } catch (e) {
+          throw new Error(`Error parsing sort parameters: ${e.message}`);
+        }
+      }
+      
       // Match the MongoDB shell pattern: db.collection.operation(parameters)
       const regex = /db\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\((.*)\)$/s;
       const match = queryStr.match(regex);
@@ -69,17 +88,78 @@ const QueryEditor = ({
       const [, collection, operation, paramsStr] = match;
       
       // Try to parse the parameters as JSON
-      // This is more complex in real-world scenarios with ObjectId, dates, etc.
-      // For now, a simplified approach using eval with safety checks
       let params;
       try {
-        // Replace ObjectId, ISODate, etc. with placeholder functions
-        const preparedStr = paramsStr
+        // Special handling for date strings before JSON parsing
+        // Step 1: Replace common MongoDB functions
+        let preparedStr = paramsStr
           .replace(/ObjectId\(['"](.*)['"]\)/g, '{"$oid":"$1"}')
-          .replace(/new Date\(['"](.*)['"]\)/g, '{"$date":"$1"}')
-          .replace(/(\w+):/g, '"$1":'); // Convert keys to quoted strings for JSON parsing
+          .replace(/ISODate\(['"](.*)['"]\)/g, '{"$date":"$1"}')
+          .replace(/new Date\(['"](.*)['"]\)/g, '{"$date":"$1"}');
+          
+        // Step 2: Process unquoted property names to proper JSON
+        preparedStr = preparedStr.replace(/(\w+):/g, '"$1":');
         
+        // Step 3: Add special handling for date strings with spaces
+        // Temporarily replace date strings that have spaces with placeholders
+        const dateStringMatches = [];
+        let dateMatchCount = 0;
+        
+        // Further improved regex to reliably catch date strings with spaces
+        const dateRegex = /"(\d{4}\/\d{1,2}\/\d{1,2}(?:\s+\d{1,2}:\d{1,2}:\d{1,2}(?:\.\d+)?)?|(?:\d{1,2}\/){2}\d{4}(?:\s+\d{1,2}:\d{1,2}:\d{1,2}(?:\.\d+)?)?|(?:\d{4}-\d{2}-\d{2})(?:T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?)?)"/g;
+        
+        // First pass - identify and mark date strings
+        let dateMatches = [];
+        let match;
+        while ((match = dateRegex.exec(preparedStr)) !== null) {
+          dateMatches.push({
+            fullMatch: match[0],
+            dateString: match[1],
+            startIndex: match.index,
+            endIndex: match.index + match[0].length
+          });
+        }
+        
+        // Sort matches by starting position in reverse order to avoid shifting indices
+        dateMatches.sort((a, b) => b.startIndex - a.startIndex);
+        
+        // Second pass - replace date strings with placeholders
+        for (const dateMatch of dateMatches) {
+          const placeholder = `"__DATE_PLACEHOLDER_${dateMatchCount}__"`;
+          dateStringMatches[dateMatchCount] = dateMatch.fullMatch;
+          preparedStr = preparedStr.substring(0, dateMatch.startIndex) + 
+                        placeholder + 
+                        preparedStr.substring(dateMatch.endIndex);
+          dateMatchCount++;
+        }
+        
+        // Now parse the JSON with placeholders
         params = JSON.parse(`[${preparedStr}]`);
+        
+        // Replace the placeholders with actual date strings
+        const restorePlaceholders = (obj) => {
+          if (typeof obj !== 'object' || obj === null) return obj;
+          
+          if (Array.isArray(obj)) {
+            return obj.map(item => restorePlaceholders(item));
+          }
+          
+          const result = {};
+          for (const [key, value] of Object.entries(obj)) {
+            if (typeof value === 'string' && value.startsWith('__DATE_PLACEHOLDER_') && value.endsWith('__')) {
+              const index = parseInt(value.replace('__DATE_PLACEHOLDER_', '').replace('__', ''));
+              // Remove the quotes from the original date string (they were added for the regex)
+              result[key] = dateStringMatches[index].slice(1, -1);
+            } else if (typeof value === 'object' && value !== null) {
+              result[key] = restorePlaceholders(value);
+            } else {
+              result[key] = value;
+            }
+          }
+          return result;
+        };
+        
+        params = params.map(item => restorePlaceholders(item));
       } catch (e) {
         // Fallback for complex queries that can't be parsed simply
         throw new Error(`Error parsing query parameters: ${e.message}. Use valid MongoDB syntax.`);
@@ -139,11 +219,17 @@ const QueryEditor = ({
           throw new Error(`Unsupported operation mapping: ${apiOperation}`);
       }
       
+      // Add the sort options if present and operation supports it
+      const options = operation.endsWith('Many') ? { many: true } : {};
+      if (sortOptions && ['find', 'findOne', 'aggregate'].includes(apiOperation)) {
+        options.sort = sortOptions;
+      }
+      
       return {
         collection,
         type: apiOperation,
         data: queryData,
-        options: operation.endsWith('Many') ? { many: true } : {}
+        options: options
       };
     } catch (e) {
       throw new Error(`Error parsing MongoDB query: ${e.message}`);
