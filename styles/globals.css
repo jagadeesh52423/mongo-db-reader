@@ -102,10 +102,21 @@ code {
 .mongo-code-editor .cm-content {
   font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', monospace;
   color: #333333;
+  caret-color: #1976d2 !important; /* Set caret color for light theme */
 }
 
 body[data-theme="dark"] .mongo-code-editor .cm-content {
   color: #e0e0e0;
+  caret-color: #90caf9 !important; /* Set caret color for dark theme */
+}
+
+/* Additional direct element targeting */
+.cm-content {
+  caret-color: #1976d2 !important; /* Default caret color */
+}
+
+body[data-theme="dark"] .cm-content {
+  caret-color: #90caf9 !important; /* Dark mode caret color */
 }
 
 /* Code editor theme-adapted styling */
@@ -139,13 +150,17 @@ body[data-theme="dark"] .mongo-code-editor .cm-activeLineGutter {
   color: #9fa6b2;
 }
 
-/* Fix cursor color to be visible in both themes */
-.mongo-code-editor .cm-cursor {
+/* Fix cursor color to be visible in both themes - with stronger selectors */
+.mongo-code-editor .cm-editor .cm-cursor,
+.cm-editor .cm-cursor,
+div.mongo-code-editor .cm-cursor {
   border-left: 1.5px solid #1976d2 !important; /* Blue cursor for light theme */
-  animation: cursor-blink 1.2s ease-in-out infinite;
+  animation: cursor-blink 1.2s ease-in-out infinite !important;
 }
 
-body[data-theme="dark"] .mongo-code-editor .cm-cursor {
+body[data-theme="dark"] .mongo-code-editor .cm-editor .cm-cursor,
+body[data-theme="dark"] .cm-editor .cm-cursor,
+body[data-theme="dark"] div.mongo-code-editor .cm-cursor {
   border-left: 1.5px solid #90caf9 !important; /* Lighter blue for dark theme */
 }
 
@@ -157,11 +172,13 @@ body[data-theme="dark"] .mongo-code-editor .cm-cursor {
 }
 
 /* Make text selection visible in both themes */
-.mongo-code-editor .cm-selectionBackground {
+.mongo-code-editor .cm-selectionBackground,
+.cm-editor .cm-selectionBackground {
   background-color: rgba(25, 118, 210, 0.2) !important;
 }
 
-body[data-theme="dark"] .mongo-code-editor .cm-selectionBackground {
+body[data-theme="dark"] .mongo-code-editor .cm-selectionBackground,
+body[data-theme="dark"] .cm-editor .cm-selectionBackground {
   background-color: rgba(66, 153, 225, 0.4) !important;
 }
 
