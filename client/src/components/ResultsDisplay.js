@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { 
   Box, 
   Paper, 
@@ -12,10 +12,15 @@ import {
   TableHead, 
   TableRow,
   IconButton,
-  Collapse
+  Collapse,
+  Menu,
+  MenuItem,
+  Tooltip,
+  Divider
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import VisibilityIcon from '@mui/icons-material/Visibility';
 import JSONTree from 'react-json-tree';
 
 const ResultsDisplay = ({ results }) => {
@@ -92,6 +97,7 @@ const ResultsDisplay = ({ results }) => {
             <Table size="small" aria-label="results table">
               <TableHead>
                 <TableRow>
+                  <TableCell padding="checkbox" sx={{ width: 40 }}></TableCell>
                   {fields.map((field) => (
                     <TableCell key={field}>{field}</TableCell>
                   ))}
@@ -117,6 +123,13 @@ const ResultsDisplay = ({ results }) => {
 // Component for table rows that can expand to show nested objects
 const ExpandableTableRow = ({ row, fields }) => {
   const [expanded, setExpanded] = useState(false);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [selectedField, setSelectedField] = useState(null);
+  
+  // Maximum width for cell content in pixels
+  const MAX_CELL_WIDTH = 150;
+  // Maximum characters to show before truncating
+  const MAX_CHARS = 50;
   
   const toggleExpand = () => {
     setExpanded(!expanded);
@@ -128,37 +141,127 @@ const ExpandableTableRow = ({ row, fields }) => {
     typeof row[field] === 'object'
   );
   
+  // Helper function to truncate text
+  const truncateText = (text, maxLength) => {
+    if (!text || text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+  };
+  
+  // Format a value for display in table cell
+  const formatCellValue = (value) => {
+    if (value === null) return 'null';
+    if (value === undefined) return '';
+    
+    if (typeof value === 'object') {
+      return Array.isArray(value) 
+        ? `Array(${value.length})` 
+        : 'Object';
+    }
+    
+    const strValue = String(value);
+    return truncateText(strValue, MAX_CHARS);
+  };
+  
+  // Handle right-click on a cell
+  const handleContextMenu = (event, field, value) => {
+    event.preventDefault();
+    
+    // Only show context menu for non-complex values
+    if (value === null || typeof value !== 'object') {
+      setContextMenu({
+        mouseX: event.clientX,
+        mouseY: event.clientY,
+      });
+      setSelectedField(field);
+    }
+  };
+  
+  // Close the context menu
+  const handleCloseContextMenu = () => {
+    setContextMenu(null);
+    setSelectedField(null);
+  };
+  
+  // View only this field's value in JSON view
+  const handleViewFieldJson = () => {
+    const fieldValue = row[selectedField];
+    console.log(`Field: ${selectedField}, Value:`, fieldValue);
+    
+    // Create and trigger a custom event to show this value
+    const event = new CustomEvent('view-field-json', {
+      detail: { 
+        field: selectedField, 
+        value: fieldValue,
+        source: row
+      }
+    });
+    window.dispatchEvent(event);
+    
+    handleCloseContextMenu();
+  };
+  
+  // Copy field value to clipboard
+  const handleCopyValue = () => {
+    const value = row[selectedField];
+    const stringValue = value !== null && value !== undefined ? String(value) : '';
+    navigator.clipboard.writeText(stringValue);
+    handleCloseContextMenu();
+  };
+  
+  // Copy field as JSON key-value pair
+  const handleCopyKeyValue = () => {
+    const value = row[selectedField];
+    let formattedValue;
+    
+    if (value === null) {
+      formattedValue = 'null';
+    } else if (value === undefined) {
+      formattedValue = 'undefined';
+    } else if (typeof value === 'string') {
+      formattedValue = `"${value}"`;
+    } else {
+      formattedValue = String(value);
+    }
+    
+    navigator.clipboard.writeText(`"${selectedField}": ${formattedValue}`);
+    handleCloseContextMenu();
+  };
+
   return (
     <>
       <TableRow>
+        <TableCell padding="checkbox">
+          <Tooltip title="View as JSON">
+            <IconButton size="small" onClick={toggleExpand}>
+              <VisibilityIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </TableCell>
         {fields.map((field) => {
           const value = row[field];
-          const isComplex = value !== null && typeof value === 'object';
           
           return (
-            <TableCell key={field}>
-              {isComplex ? (
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Typography variant="body2" color="text.secondary">
-                    {Array.isArray(value) ? `Array(${value.length})` : 'Object'}
-                  </Typography>
-                  {hasComplexFields && (
-                    <IconButton size="small" onClick={toggleExpand}>
-                      {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                    </IconButton>
-                  )}
-                </Box>
-              ) : (
-                value !== undefined ? String(value) : ''
-              )}
+            <TableCell 
+              key={field}
+              onContextMenu={(e) => handleContextMenu(e, field, value)}
+              sx={{ 
+                maxWidth: MAX_CELL_WIDTH,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                cursor: 'default',
+                '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' },
+              }}
+            >
+              {formatCellValue(value)}
             </TableCell>
           );
         })}
       </TableRow>
       
-      {hasComplexFields && expanded && (
+      {expanded && (
         <TableRow>
-          <TableCell colSpan={fields.length} sx={{ p: 0, borderBottom: 0 }}>
+          <TableCell colSpan={fields.length + 1} sx={{ p: 0, borderBottom: 0 }}>
             <Collapse in={expanded}>
               <Box sx={{ p: 2, bgcolor: 'action.hover' }}>
                 <JSONTree 
@@ -189,8 +292,34 @@ const ExpandableTableRow = ({ row, fields }) => {
           </TableCell>
         </TableRow>
       )}
+      
+      {/* Context menu for right-click on cells */}
+      <Menu
+        open={contextMenu !== null}
+        onClose={handleCloseContextMenu}
+        anchorReference="anchorPosition"
+        anchorPosition={
+          contextMenu !== null
+            ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+            : undefined
+        }
+      >
+        <MenuItem onClick={handleViewFieldJson}>
+          <Typography variant="body2">View JSON for this field</Typography>
+        </MenuItem>
+        <Divider />
+        <MenuItem onClick={handleCopyValue}>
+          <Typography variant="body2">Copy value</Typography>
+        </MenuItem>
+        <MenuItem onClick={handleCopyKeyValue}>
+          <Typography variant="body2">Copy as JSON key-value</Typography>
+        </MenuItem>
+      </Menu>
     </>
   );
 };
+
+// Component to show a single field's JSON value in a modal
+// This could be added later and triggered by the custom event we're dispatching
 
 export default ResultsDisplay;

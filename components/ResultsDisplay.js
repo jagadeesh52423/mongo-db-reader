@@ -24,12 +24,21 @@ import {
   MenuItem,
   InputLabel,
   Stack,
-  Menu
+  Menu,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import ErrorIcon from '@mui/icons-material/Error';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import LaunchIcon from '@mui/icons-material/Launch';
 
 // Fallback simple JSON viewer component as default
 const SimpleJSONViewer = ({ data }) => (
@@ -94,6 +103,7 @@ const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
   const [viewMode, setViewMode] = useState('table');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [fieldJsonDialog, setFieldJsonDialog] = useState(null);
   
   const handleChangeViewMode = (event, newValue) => {
     setViewMode(newValue);
@@ -152,6 +162,15 @@ const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
       onPageChange(1, newPageSize);
     }
   };
+
+  // Field JSON Dialog handlers
+  const handleOpenFieldJsonDialog = (field, value) => {
+    setFieldJsonDialog({ field, value });
+  };
+
+  const handleCloseFieldJsonDialog = () => {
+    setFieldJsonDialog(null);
+  };
   
   // Show pagination if we have an array with more than one page of items
   const showPagination = (isArray || isPaginated) && count > pageSize;
@@ -186,6 +205,7 @@ const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
             <Table size="small" aria-label="results table">
               <TableHead>
                 <TableRow>
+                  <TableCell padding="checkbox" sx={{ width: 40 }}></TableCell>
                   {fields.map((field) => (
                     <TableCell key={field}>{field}</TableCell>
                   ))}
@@ -193,7 +213,12 @@ const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
               </TableHead>
               <TableBody>
                 {paginatedDocuments.map((row, index) => (
-                  <ExpandableTableRow key={index} row={row} fields={fields} />
+                  <ExpandableTableRow 
+                    key={index} 
+                    row={row} 
+                    fields={fields} 
+                    onViewFieldJson={handleOpenFieldJsonDialog}
+                  />
                 ))}
               </TableBody>
             </Table>
@@ -232,6 +257,36 @@ const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
           </Box>
         )}
       </Box>
+
+      {/* Dialog to show field JSON */}
+      <Dialog
+        open={fieldJsonDialog !== null}
+        onClose={handleCloseFieldJsonDialog}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          Field: {fieldJsonDialog?.field}
+        </DialogTitle>
+        <DialogContent dividers>
+          {fieldJsonDialog && (
+            <SimpleJSONViewer data={fieldJsonDialog.value} />
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCloseFieldJsonDialog}>Close</Button>
+          {fieldJsonDialog && (
+            <Button 
+              onClick={() => {
+                navigator.clipboard.writeText(JSON.stringify(fieldJsonDialog.value, null, 2));
+              }}
+              startIcon={<ContentCopyIcon />}
+            >
+              Copy JSON
+            </Button>
+          )}
+        </DialogActions>
+      </Dialog>
     </Box>
   );
 };
@@ -333,14 +388,16 @@ const MultiQueryResultDisplay = ({ results }) => {
 };
 
 // Component for table rows that can expand to show nested objects
-const ExpandableTableRow = ({ row, fields }) => {
+const ExpandableTableRow = ({ row, fields, onViewFieldJson }) => {
   const [expanded, setExpanded] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [selectedField, setSelectedField] = useState(null);
   const [selectedValue, setSelectedValue] = useState(null);
   
-  // Create a ref to the query editor that will be updated
-  const queryEditorRef = useRef(null);
+  // Maximum width for cell content in pixels
+  const MAX_CELL_WIDTH = 150;
+  // Maximum characters to show before truncating
+  const MAX_CHARS = 50;
   
   const toggleExpand = () => {
     setExpanded(!expanded);
@@ -351,6 +408,27 @@ const ExpandableTableRow = ({ row, fields }) => {
     row[field] !== null && 
     typeof row[field] === 'object'
   );
+  
+  // Helper function to truncate text
+  const truncateText = (text, maxLength) => {
+    if (!text || text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
+  };
+  
+  // Format a value for display in table cell
+  const formatCellValue = (value) => {
+    if (value === null) return 'null';
+    if (value === undefined) return '';
+    
+    if (typeof value === 'object') {
+      return Array.isArray(value) 
+        ? `Array(${value.length})` 
+        : 'Object';
+    }
+    
+    const strValue = String(value);
+    return truncateText(strValue, MAX_CHARS);
+  };
   
   // Determine the data type of a value
   const getFieldType = (value) => {
@@ -393,15 +471,12 @@ const ExpandableTableRow = ({ row, fields }) => {
     // Prevent the default context menu
     event.preventDefault();
     
-    // Only show context menu for non-complex values
-    if (value === null || typeof value !== 'object') {
-      setContextMenu({
-        x: event.clientX,
-        y: event.clientY,
-      });
-      setSelectedField(field);
-      setSelectedValue(value);
-    }
+    setContextMenu({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    setSelectedField(field);
+    setSelectedValue(value);
   };
   
   // Close the context menu
@@ -455,111 +530,25 @@ const ExpandableTableRow = ({ row, fields }) => {
     copyToClipboard(`"${selectedField}": ${formattedValue}`);
     handleCloseContextMenu();
   };
-  
-  // Format the value appropriately for MongoDB query syntax
-  const formatValueForQuery = (value, operator) => {
-    const fieldType = getFieldType(value);
-    
-    if (value === null) return 'null';
-    if (value === undefined) return 'undefined';
-    
-    if (fieldType === 'string') {
-      // Handle regex operators specially
-      if (operator === '$regex') {
-        return `"${value}"`;
-      } else if (operator === '$regex^') {
-        return `"^${value}"`;
-      } else if (operator === '$regex$') {
-        return `"${value}$"`;
-      } else {
-        return `"${value}"`;
-      }
-    } else if (fieldType === 'date') {
-      // Format as date for MongoDB
-      return `"${value}"`;
-    } else {
-      // Numbers and booleans don't need quotes
-      return String(value);
+
+  // View JSON for specific field
+  const handleViewFieldJson = () => {
+    if (onViewFieldJson) {
+      onViewFieldJson(selectedField, row[selectedField]);
     }
-  };
-  
-  // Handle query option selection
-  const handleQueryOption = (option) => {
-    const value = row[selectedField];
-    const formattedValue = formatValueForQuery(value, option.value);
-    let querySnippet = '';
-    
-    // Map the option to the appropriate MongoDB query syntax without enclosing braces
-    switch (option.value) {
-      case '$eq':
-        querySnippet = `"${selectedField}": ${formattedValue}`;
-        break;
-      case '$ne':
-        querySnippet = `"${selectedField}": { "$ne": ${formattedValue} }`;
-        break;
-      case '$gt':
-        querySnippet = `"${selectedField}": { "$gt": ${formattedValue} }`;
-        break;
-      case '$gte':
-        querySnippet = `"${selectedField}": { "$gte": ${formattedValue} }`;
-        break;
-      case '$lt':
-        querySnippet = `"${selectedField}": { "$lt": ${formattedValue} }`;
-        break;
-      case '$lte':
-        querySnippet = `"${selectedField}": { "$lte": ${formattedValue} }`;
-        break;
-      case '$in':
-        querySnippet = `"${selectedField}": { "$in": [${formattedValue}] }`;
-        break;
-      case '$nin':
-        querySnippet = `"${selectedField}": { "$nin": [${formattedValue}] }`;
-        break;
-      case '$regex':
-        querySnippet = `"${selectedField}": { "$regex": ${formattedValue}, "$options": "i" }`;
-        break;
-      case '$regex^':
-        querySnippet = `"${selectedField}": { "$regex": "^${value}", "$options": "i" }`;
-        break;
-      case '$regex$':
-        querySnippet = `"${selectedField}": { "$regex": "${value}$", "$options": "i" }`;
-        break;
-      case 'null':
-        querySnippet = `"${selectedField}": null`;
-        break;
-      case 'notNull':
-        querySnippet = `"${selectedField}": { "$ne": null }`;
-        break;
-      case 'true':
-        querySnippet = `"${selectedField}": true`;
-        break;
-      case 'false':
-        querySnippet = `"${selectedField}": false`;
-        break;
-      default:
-        querySnippet = `"${selectedField}": ${formattedValue}`;
-    }
-    
-    // Copy the query snippet to clipboard
-    copyToClipboard(querySnippet);
-    
-    // Create a custom event to suggest this query in the editor
-    const event = new CustomEvent('suggest-query', {
-      detail: { 
-        query: querySnippet,
-        field: selectedField,
-        operator: option.value,
-        value: value
-      }
-    });
-    window.dispatchEvent(event);
-    
     handleCloseContextMenu();
   };
-  
+
   return (
     <>
       <TableRow>
+        <TableCell padding="checkbox">
+          <Tooltip title="View record as JSON">
+            <IconButton size="small" onClick={toggleExpand}>
+              <VisibilityIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </TableCell>
         {fields.map((field) => {
           const value = row[field];
           const isComplex = value !== null && typeof value === 'object';
@@ -569,43 +558,23 @@ const ExpandableTableRow = ({ row, fields }) => {
               key={field}
               onContextMenu={(e) => handleContextMenu(e, field, value)}
               sx={{ 
-                cursor: isComplex ? 'default' : 'pointer',
-                '&:hover': { 
-                  backgroundColor: isComplex ? 'inherit' : 'rgba(0, 0, 0, 0.04)' 
-                }
+                maxWidth: MAX_CELL_WIDTH,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                cursor: 'default',
+                '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
               }}
             >
-              {isComplex ? (
-                <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                  <Typography variant="body2" color="text.secondary">
-                    {Array.isArray(value) ? `Array(${value.length})` : 'Object'}
-                  </Typography>
-                  {hasComplexFields && (
-                    <IconButton size="small" onClick={toggleExpand}>
-                      {expanded ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-                    </IconButton>
-                  )}
-                </Box>
-              ) : (
-                <Box 
-                  component="span" 
-                  sx={{ 
-                    display: 'inline-block', 
-                    width: '100%',
-                    cursor: 'pointer'
-                  }}
-                >
-                  {value !== undefined ? String(value) : ''}
-                </Box>
-              )}
+              {formatCellValue(value)}
             </TableCell>
           );
         })}
       </TableRow>
       
-      {hasComplexFields && expanded && (
+      {expanded && (
         <TableRow>
-          <TableCell colSpan={fields.length} sx={{ p: 0, borderBottom: 0 }}>
+          <TableCell colSpan={fields.length + 1} sx={{ p: 0, borderBottom: 0 }}>
             <Collapse in={expanded}>
               <Box sx={{ p: 2, bgcolor: 'action.hover' }}>
                 <SimpleJSONViewer data={row} />
@@ -623,8 +592,11 @@ const ExpandableTableRow = ({ row, fields }) => {
           onCopyValue={handleCopyValue}
           onCopyRecord={handleCopyRecord}
           onCopyField={handleCopyField}
-          onQueryOption={handleQueryOption}
+          onViewFieldJson={handleViewFieldJson}
           fieldType={getFieldType(selectedValue)}
+          onQueryOption={(option) => {
+            handleQueryOption(option);
+          }}
         />
       )}
     </>
@@ -632,7 +604,7 @@ const ExpandableTableRow = ({ row, fields }) => {
 };
 
 // Component for context menu on table cells
-const TableCellContextMenu = ({ x, y, onClose, onCopyValue, onCopyRecord, onCopyField, onQueryOption, fieldType }) => {
+const TableCellContextMenu = ({ x, y, onClose, onCopyValue, onCopyRecord, onCopyField, onViewFieldJson, fieldType, onQueryOption }) => {
   // Position the menu at the mouse position
   const menuPosition = {
     left: x,
@@ -703,14 +675,18 @@ const TableCellContextMenu = ({ x, y, onClose, onCopyValue, onCopyRecord, onCopy
       anchorReference="anchorPosition"
       anchorPosition={menuPosition}
     >
+      <MenuItem onClick={onViewFieldJson}>
+        <Typography variant="body2">View JSON for this field</Typography>
+      </MenuItem>
+      <Divider />
       <MenuItem onClick={onCopyValue}>
         <Typography variant="body2">Copy Value</Typography>
       </MenuItem>
-      <MenuItem onClick={onCopyRecord}>
-        <Typography variant="body2">Copy Record</Typography>
-      </MenuItem>
       <MenuItem onClick={onCopyField}>
         <Typography variant="body2">Copy Field</Typography>
+      </MenuItem>
+      <MenuItem onClick={onCopyRecord}>
+        <Typography variant="body2">Copy Record</Typography>
       </MenuItem>
       
       {/* Query Options Submenu */}
