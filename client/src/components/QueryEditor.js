@@ -1,63 +1,14 @@
-import React, { useContext, useState, useRef, useEffect } from 'react';
+import React, { useContext, useState, useRef } from 'react';
 import { Box, Button, FormControl, InputLabel, Select, MenuItem, Paper } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import { ConnectionContext } from '../contexts/ConnectionContext';
-import { EditorState } from '@codemirror/state';
-import { EditorView, keymap } from '@codemirror/view';
-import { defaultKeymap } from '@codemirror/commands';
-import { json } from '@codemirror/lang-json';
-import { oneDark } from '@codemirror/theme-one-dark';
+import MongoCodeEditor from '../../../components/MongoCodeEditor';
 
 const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
   const { executeQuery, activeConnection, activeDatabase, activeCollection } = useContext(ConnectionContext);
   const [queryType, setQueryType] = useState('find');
   const [error, setError] = useState(null);
   const editorRef = useRef(null);
-  const editorViewRef = useRef(null);
-
-  useEffect(() => {
-    if (!editorRef.current) return;
-
-    const startState = EditorState.create({
-      doc: query || '',
-      extensions: [
-        keymap.of(defaultKeymap),
-        json(),
-        oneDark,
-        EditorView.updateListener.of(update => {
-          if (update.docChanged) {
-            onUpdateQuery(update.state.doc.toString());
-          }
-        })
-      ]
-    });
-
-    const view = new EditorView({
-      state: startState,
-      parent: editorRef.current
-    });
-
-    editorViewRef.current = view;
-
-    return () => {
-      if (editorViewRef.current) {
-        editorViewRef.current.destroy();
-      }
-    };
-  }, []);
-
-  // Update editor when query changes externally
-  useEffect(() => {
-    if (editorViewRef.current && query !== editorViewRef.current.state.doc.toString()) {
-      editorViewRef.current.dispatch({
-        changes: {
-          from: 0,
-          to: editorViewRef.current.state.doc.length,
-          insert: query || ''
-        }
-      });
-    }
-  }, [query]);
 
   const handleRunQuery = async () => {
     if (!activeConnection || !activeDatabase || !activeCollection) {
@@ -69,17 +20,26 @@ const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
       // Parse the query string to JSON
       let parsedQuery;
       try {
+        // If there's a selection, use that instead of the full query
+        let queryToExecute = query;
+        if (editorRef.current) {
+          const selection = editorRef.current.getSelection();
+          if (selection.text) {
+            queryToExecute = selection.text;
+          }
+        }
+        
         // Handle different query formats based on type
         if (queryType === 'find' || queryType === 'findOne' || queryType === 'count' || queryType === 'delete') {
-          parsedQuery = query ? JSON.parse(query) : {};
+          parsedQuery = queryToExecute ? JSON.parse(queryToExecute) : {};
         } else if (queryType === 'update') {
-          parsedQuery = query ? JSON.parse(query) : { filter: {}, update: { $set: {} } };
+          parsedQuery = queryToExecute ? JSON.parse(queryToExecute) : { filter: {}, update: { $set: {} } };
         } else if (queryType === 'aggregate') {
-          parsedQuery = query ? JSON.parse(query) : [];
+          parsedQuery = queryToExecute ? JSON.parse(queryToExecute) : [];
         } else if (queryType === 'distinct') {
-          parsedQuery = query ? JSON.parse(query) : { field: '', filter: {} };
+          parsedQuery = queryToExecute ? JSON.parse(queryToExecute) : { field: '', filter: {} };
         } else if (queryType === 'insert') {
-          parsedQuery = query ? JSON.parse(query) : {};
+          parsedQuery = queryToExecute ? JSON.parse(queryToExecute) : {};
         }
       } catch (e) {
         setError('Invalid JSON: ' + e.message);
@@ -162,14 +122,12 @@ const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
       </Box>
       
       <Paper variant="outlined" sx={{ mb: 2 }}>
-        <Box 
-          ref={editorRef} 
-          sx={{ 
-            minHeight: 200, 
-            fontFamily: 'monospace',
-            '.cm-editor': { height: '100%', minHeight: 200 },
-            '.cm-scroller': { overflow: 'auto' }
-          }} 
+        <MongoCodeEditor 
+          ref={editorRef}
+          value={query || ''}
+          onChange={onUpdateQuery}
+          placeholder={getPlaceholderQuery()}
+          height="200px"
         />
       </Paper>
       

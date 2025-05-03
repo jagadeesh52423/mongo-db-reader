@@ -14,7 +14,8 @@ import {
   Chip,
   Badge,
   Menu,
-  Tooltip
+  Tooltip,
+  useTheme
 } from '@mui/material';
 import MenuIcon from '@mui/icons-material/Menu';
 import AddIcon from '@mui/icons-material/Add';
@@ -23,10 +24,12 @@ import ErrorIcon from '@mui/icons-material/Error';
 import SyncIcon from '@mui/icons-material/Sync';
 import StorageIcon from '@mui/icons-material/Storage';
 import PowerOffIcon from '@mui/icons-material/PowerOff';
+import Brightness4Icon from '@mui/icons-material/Brightness4';
+import Brightness7Icon from '@mui/icons-material/Brightness7';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 import ConnectionDialog from './ConnectionDialog';
 
-const Header = ({ handleDrawerToggle }) => {
+const Header = ({ handleDrawerToggle, themeMode, setThemeMode }) => {
   const [openDialog, setOpenDialog] = useState(false);
   const [editConnectionData, setEditConnectionData] = useState(null);
   const [isEditing, setIsEditing] = useState(false);
@@ -45,6 +48,7 @@ const Header = ({ handleDrawerToggle }) => {
     serverStatus,
     retryConnection
   } = useContext(ConnectionContext);
+  const theme = useTheme();
 
   // Listen for custom events to open the connection dialog
   useEffect(() => {
@@ -158,6 +162,11 @@ const Header = ({ handleDrawerToggle }) => {
   const allActiveConnections = getAllActiveConnections();
   const currentConnection = currentConnectionId ? allActiveConnections[currentConnectionId] : null;
 
+  // Toggle between light and dark modes
+  const toggleColorMode = () => {
+    setThemeMode(prevMode => prevMode === 'light' ? 'dark' : 'light');
+  };
+
   return (
     <>
       <style jsx global>{`
@@ -270,6 +279,13 @@ const Header = ({ handleDrawerToggle }) => {
           >
             New Connection
           </Button>
+
+          {/* Theme toggle button */}
+          <Tooltip title={`Switch to ${themeMode === 'dark' ? 'light' : 'dark'} mode`}>
+            <IconButton color="inherit" onClick={toggleColorMode} sx={{ ml: 1 }}>
+              {themeMode === 'dark' ? <Brightness7Icon /> : <Brightness4Icon />}
+            </IconButton>
+          </Tooltip>
         </Toolbar>
       </AppBar>
       

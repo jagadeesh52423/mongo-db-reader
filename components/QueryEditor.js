@@ -1,10 +1,11 @@
 import React, { useContext, useState, useRef, useEffect } from 'react';
-import { Box, Button, Paper, TextField, Typography, Tooltip, ButtonGroup, FormControl, Select, IconButton } from '@mui/material';
+import { Box, Button, Paper, Typography, Tooltip, ButtonGroup, FormControl, Select, IconButton } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 import MongoHelpDrawer from './MongoHelpDrawer';
+import MongoCodeEditor from './MongoCodeEditor';
 
 const QueryEditor = ({ 
   id,
@@ -20,13 +21,13 @@ const QueryEditor = ({
   const editorRef = useRef(null);
   const [helpDrawerOpen, setHelpDrawerOpen] = useState(false);
 
+  // Find the connection object based on connectionId
+  const connection = connections.find(conn => conn._id === connectionId);
+
   // Toggle help drawer
   const toggleHelpDrawer = () => {
     setHelpDrawerOpen(!helpDrawerOpen);
   };
-
-  // Find the connection object based on connectionId
-  const connection = connections.find(conn => conn._id === connectionId);
 
   // Listen for external trigger to execute query (for pagination)
   useEffect(() => {
@@ -566,17 +567,18 @@ const QueryEditor = ({
 
   // Get the current query where the cursor is or the selected text
   const getCurrentOrSelectedQuery = () => {
-    const textArea = editorRef.current;
-    if (!textArea) return null;
+    if (!editorRef.current) return null;
 
-    // If there's a selection, use that
-    if (textArea.selectionStart !== textArea.selectionEnd) {
-      return query.substring(textArea.selectionStart, textArea.selectionEnd);
+    // Check if there's a selection
+    const selection = editorRef.current.getSelection();
+    if (selection.text) {
+      return selection.text;
     }
 
     // Otherwise, find the query where the cursor is
-    const cursorPosition = textArea.selectionStart;
-    const queries = splitQueries(query);
+    const fullText = editorRef.current.getText();
+    const cursorPosition = editorRef.current.getCursorPosition();
+    const queries = splitQueries(fullText);
     
     let startPos = 0;
     for (const q of queries) {
@@ -590,7 +592,7 @@ const QueryEditor = ({
     }
 
     // If we can't determine, return the first query
-    return queries[0] || query;
+    return queries[0] || fullText;
   };
 
   // Execute a single query with pagination support
@@ -752,19 +754,12 @@ const QueryEditor = ({
       </Box>
       
       <Paper variant="outlined" sx={{ mb: 2 }}>
-        <TextField
-          inputRef={editorRef}
-          multiline
-          fullWidth
-          minRows={8}
-          maxRows={20}
+        <MongoCodeEditor
+          ref={editorRef}
           value={query || ''}
-          onChange={(e) => onUpdateQuery(e.target.value)}
-          placeholder={query ? '' : getExampleQueries()}
-          variant="outlined"
-          InputProps={{
-            style: { fontFamily: 'monospace', fontSize: '14px' }
-          }}
+          onChange={onUpdateQuery}
+          placeholder={getExampleQueries()}
+          height="200px"
         />
       </Paper>
       

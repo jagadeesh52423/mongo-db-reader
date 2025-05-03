@@ -1,64 +1,125 @@
-import React, { useState } from 'react';
-import { Box, CssBaseline, ThemeProvider, createTheme } from '@mui/material';
-import dynamic from 'next/dynamic';
+import React, { useState, useContext, useEffect } from 'react';
+import Head from 'next/head';
+import { 
+  Box, 
+  CssBaseline, 
+  Drawer, 
+  Toolbar,
+  useMediaQuery
+} from '@mui/material';
+import Header from '../components/Header';
+import Sidebar from '../components/Sidebar';
+import TabPanel from '../components/TabPanel';
+import ServerStatusBar from '../components/ServerStatusBar';
+import { ConnectionContext } from '../contexts/ConnectionContext';
 
-// Import components using the correct pattern for dynamic imports
-const Header = dynamic(() => import('../components/Header'), { ssr: false });
-const Sidebar = dynamic(() => import('../components/Sidebar'), { ssr: false });
-const TabPanel = dynamic(() => import('../components/TabPanel'), { ssr: false });
-const ServerStatusBar = dynamic(() => import('../components/ServerStatusBar'), { ssr: false });
+const drawerWidth = 240;
 
-// Fix the ConnectionProvider import to ensure we're getting a valid React component
-const ConnectionProvider = dynamic(
-  () => import('../contexts/ConnectionContext').then(mod => {
-    // Make sure we return the actual component, not just an object
-    return { default: mod.ConnectionProvider };
-  }),
-  { ssr: false }
-);
-
-const theme = createTheme({
-  palette: {
-    mode: 'dark',
-    primary: {
-      main: '#90caf9',
-    },
-    secondary: {
-      main: '#f48fb1',
-    },
-  },
-});
-
-export default function Home() {
+export default function Home({ themeMode, setThemeMode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
+  const isTablet = useMediaQuery('(max-width:900px)');
+  const {
+    currentConnectionId,
+    activeConnections,
+    activeDatabase,
+    setActiveDatabase
+  } = useContext(ConnectionContext);
+
+  // Close drawer when selecting a connection on mobile
+  useEffect(() => {
+    if (isTablet) {
+      setMobileOpen(false);
+    }
+  }, [currentConnectionId, isTablet]);
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
   };
 
   return (
-    <ThemeProvider theme={theme}>
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <>
+      <Head>
+        <title>MongoDB Reader</title>
+        <meta name="description" content="MongoDB collection reader application" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+      </Head>
+      
+      <Box sx={{ display: 'flex', height: '100vh', overflow: 'hidden' }}>
         <CssBaseline />
-        {/* We'll create a simpler structure until we resolve the connection provider issues */}
-        <ConnectionProvider>
-          <Box sx={{ display: 'flex', flexGrow: 1 }}>
-            <Header handleDrawerToggle={handleDrawerToggle} />
-            <Sidebar 
-              mobileOpen={mobileOpen} 
-              handleDrawerToggle={handleDrawerToggle} 
-            />
-            <Box
-              component="main"
-              sx={{ flexGrow: 1, p: 3, width: { sm: `calc(100% - 240px)` } }}
-            >
-              <Box sx={{ height: 64 }} /> {/* Toolbar offset */}
-              <ServerStatusBar />
-              <TabPanel />
+        
+        <Header 
+          handleDrawerToggle={handleDrawerToggle}
+          themeMode={themeMode}
+          setThemeMode={setThemeMode}
+        />
+        
+        <Box
+          component="nav"
+          sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}
+        >
+          {/* Mobile drawer */}
+          <Drawer
+            variant="temporary"
+            open={mobileOpen}
+            onClose={handleDrawerToggle}
+            ModalProps={{
+              keepMounted: true, // Better open performance on mobile.
+            }}
+            sx={{
+              display: { xs: 'block', sm: 'none' },
+              '& .MuiDrawer-paper': { 
+                boxSizing: 'border-box', 
+                width: drawerWidth 
+              },
+            }}
+          >
+            <Toolbar />
+            <Sidebar />
+          </Drawer>
+          
+          {/* Desktop drawer */}
+          <Drawer
+            variant="permanent"
+            sx={{
+              display: { xs: 'none', sm: 'block' },
+              '& .MuiDrawer-paper': { 
+                boxSizing: 'border-box', 
+                width: drawerWidth,
+                height: '100%',
+                overflow: 'hidden'
+              },
+            }}
+            open
+          >
+            <Toolbar />
+            <Box sx={{ height: 'calc(100% - 64px)', overflow: 'auto' }}>
+              <Sidebar />
             </Box>
+          </Drawer>
+        </Box>
+        
+        <Box
+          component="main"
+          sx={{ 
+            flexGrow: 1, 
+            width: { sm: `calc(100% - ${drawerWidth}px)` },
+            display: 'flex',
+            flexDirection: 'column',
+            height: '100%'
+          }}
+        >
+          <Toolbar />
+          <Box sx={{ 
+            flexGrow: 1, 
+            overflow: 'auto',
+            display: 'flex',
+            flexDirection: 'column'
+          }}>
+            <TabPanel />
           </Box>
-        </ConnectionProvider>
+          <ServerStatusBar />
+        </Box>
       </Box>
-    </ThemeProvider>
+    </>
   );
 }
