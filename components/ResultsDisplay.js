@@ -763,6 +763,32 @@ const ResultsDisplay = ({ results, onPageChange }) => {
       </Paper>
     );
   }
+
+  // Handle forEach processing results
+  if (results && results.forEach && Array.isArray(results.forEach)) {
+    return (
+      <Paper variant="outlined" sx={{ bgcolor: 'background.paper', flexGrow: 1, overflow: 'auto', p: 2 }}>
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', display: 'flex', px: 2, pb: 1 }}>
+          <Typography variant="subtitle1" sx={{ fontWeight: 'medium' }}>
+            forEach Results
+          </Typography>
+        </Box>
+        <Box sx={{ p: 2 }}>
+          {results.forEach.map((item, index) => (
+            <Box key={index} sx={{ mb: 1, p: 1, bgcolor: 'background.default', borderRadius: 1 }}>
+              {item.error ? (
+                <Typography color="error">{item.error}</Typography>
+              ) : (
+                <Typography component="pre" sx={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', m: 0 }}>
+                  {item.printed}
+                </Typography>
+              )}
+            </Box>
+          ))}
+        </Box>
+      </Paper>
+    );
+  }
   
   return (
     <Paper variant="outlined" sx={{ bgcolor: 'background.paper', flexGrow: 1, overflow: 'auto' }}>

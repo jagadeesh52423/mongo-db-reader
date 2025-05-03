@@ -70,32 +70,91 @@ router.post('/execute-by-token', validateSession, async (req, res) => {
     
     switch (type) {
       case 'find':
-        // If pagination is requested, get count first
-        if (hasPagination) {
+        let cursor = coll.find(query, mongoOptions);
+        
+        // Handle special processing modes
+        if (options.processingMode === 'forEach') {
+          const results = [];
+          const { paramName, body } = options.forEach || {};
+          
+          if (paramName && body) {
+            // Create a custom function that processes each document
+            // This is a safer alternative to eval
+            const processFn = new Function(paramName, body);
+            
+            // Apply the function to each document and collect results
+            const docs = await cursor.toArray();
+            for (const doc of docs) {
+              try {
+                // Call the function and capture any printed output
+                let printed = '';
+                const originalConsoleLog = console.log;
+                console.log = (...args) => {
+                  printed += args.join(' ') + '\n';
+                  originalConsoleLog(...args);
+                };
+                
+                processFn(doc);
+                console.log = originalConsoleLog;
+                
+                if (printed) {
+                  results.push({ printed });
+                }
+              } catch (err) {
+                results.push({ error: `Error in forEach function: ${err.message}` });
+              }
+            }
+            
+            result = { forEach: results };
+            metadata.count = docs.length;
+          } else {
+            throw new Error('Invalid forEach function');
+          }
+        } 
+        else if (options.processingMode === 'map') {
+          const results = [];
+          const { paramName, body } = options.map || {};
+          
+          if (paramName && body) {
+            // Create a function to transform each document
+            const mapFn = new Function(paramName, `return ${body}`);
+            
+            // Apply the mapping function to each document
+            const docs = await cursor.toArray();
+            for (const doc of docs) {
+              try {
+                const mappedValue = mapFn(doc);
+                results.push(mappedValue);
+              } catch (err) {
+                results.push({ error: `Error in map function: ${err.message}` });
+              }
+            }
+            
+            result = results;
+            metadata.count = docs.length;
+          } else {
+            throw new Error('Invalid map function');
+          }
+        } 
+        else if (hasPagination) {
+          // Apply pagination if requested
           const totalCount = await coll.countDocuments(query);
+          cursor = cursor.skip(skip).limit(pageSize);
+          
+          result = await cursor.toArray();
           metadata = {
-            totalCount,
             page,
             pageSize,
+            totalCount,
             totalPages: Math.ceil(totalCount / pageSize)
           };
-          
-          // Apply pagination
-          const findCursor = coll.find(query, mongoOptions)
-            .skip(skip)
-            .limit(pageSize);
-          
-          const documents = await findCursor.toArray();
-          
-          // Return paginated response
-          result = {
-            metadata,
-            documents
-          };
         } else {
-          // Non-paginated response
-          const findCursor = coll.find(query, mongoOptions);
-          result = await findCursor.toArray();
+          // Apply default limit if no pagination
+          if (!options.limit) {
+            cursor = cursor.limit(100); // Default limit
+          }
+          result = await cursor.toArray();
+          metadata.count = result.length;
         }
         break;
         
@@ -282,32 +341,91 @@ router.post('/execute', async (req, res) => {
     
     switch (type) {
       case 'find':
-        // If pagination is requested, get count first
-        if (hasPagination) {
+        let cursor = coll.find(query, mongoOptions);
+        
+        // Handle special processing modes
+        if (options.processingMode === 'forEach') {
+          const results = [];
+          const { paramName, body } = options.forEach || {};
+          
+          if (paramName && body) {
+            // Create a custom function that processes each document
+            // This is a safer alternative to eval
+            const processFn = new Function(paramName, body);
+            
+            // Apply the function to each document and collect results
+            const docs = await cursor.toArray();
+            for (const doc of docs) {
+              try {
+                // Call the function and capture any printed output
+                let printed = '';
+                const originalConsoleLog = console.log;
+                console.log = (...args) => {
+                  printed += args.join(' ') + '\n';
+                  originalConsoleLog(...args);
+                };
+                
+                processFn(doc);
+                console.log = originalConsoleLog;
+                
+                if (printed) {
+                  results.push({ printed });
+                }
+              } catch (err) {
+                results.push({ error: `Error in forEach function: ${err.message}` });
+              }
+            }
+            
+            result = { forEach: results };
+            metadata.count = docs.length;
+          } else {
+            throw new Error('Invalid forEach function');
+          }
+        } 
+        else if (options.processingMode === 'map') {
+          const results = [];
+          const { paramName, body } = options.map || {};
+          
+          if (paramName && body) {
+            // Create a function to transform each document
+            const mapFn = new Function(paramName, `return ${body}`);
+            
+            // Apply the mapping function to each document
+            const docs = await cursor.toArray();
+            for (const doc of docs) {
+              try {
+                const mappedValue = mapFn(doc);
+                results.push(mappedValue);
+              } catch (err) {
+                results.push({ error: `Error in map function: ${err.message}` });
+              }
+            }
+            
+            result = results;
+            metadata.count = docs.length;
+          } else {
+            throw new Error('Invalid map function');
+          }
+        } 
+        else if (hasPagination) {
+          // Apply pagination if requested
           const totalCount = await coll.countDocuments(query);
+          cursor = cursor.skip(skip).limit(pageSize);
+          
+          result = await cursor.toArray();
           metadata = {
-            totalCount,
             page,
             pageSize,
+            totalCount,
             totalPages: Math.ceil(totalCount / pageSize)
           };
-          
-          // Apply pagination
-          const findCursor = coll.find(query, mongoOptions)
-            .skip(skip)
-            .limit(pageSize);
-          
-          const documents = await findCursor.toArray();
-          
-          // Return paginated response
-          result = {
-            metadata,
-            documents
-          };
         } else {
-          // Non-paginated response
-          const findCursor = coll.find(query, mongoOptions);
-          result = await findCursor.toArray();
+          // Apply default limit if no pagination
+          if (!options.limit) {
+            cursor = cursor.limit(100); // Default limit
+          }
+          result = await cursor.toArray();
+          metadata.count = result.length;
         }
         break;
         
@@ -451,32 +569,91 @@ router.post('/:connectionId/:dbName/:collectionName', async (req, res) => {
     
     switch (type) {
       case 'find':
-        // If pagination is requested, get count first
-        if (hasPagination) {
+        let cursor = collection.find(query, mongoOptions);
+        
+        // Handle special processing modes
+        if (options.processingMode === 'forEach') {
+          const results = [];
+          const { paramName, body } = options.forEach || {};
+          
+          if (paramName && body) {
+            // Create a custom function that processes each document
+            // This is a safer alternative to eval
+            const processFn = new Function(paramName, body);
+            
+            // Apply the function to each document and collect results
+            const docs = await cursor.toArray();
+            for (const doc of docs) {
+              try {
+                // Call the function and capture any printed output
+                let printed = '';
+                const originalConsoleLog = console.log;
+                console.log = (...args) => {
+                  printed += args.join(' ') + '\n';
+                  originalConsoleLog(...args);
+                };
+                
+                processFn(doc);
+                console.log = originalConsoleLog;
+                
+                if (printed) {
+                  results.push({ printed });
+                }
+              } catch (err) {
+                results.push({ error: `Error in forEach function: ${err.message}` });
+              }
+            }
+            
+            result = { forEach: results };
+            metadata.count = docs.length;
+          } else {
+            throw new Error('Invalid forEach function');
+          }
+        } 
+        else if (options.processingMode === 'map') {
+          const results = [];
+          const { paramName, body } = options.map || {};
+          
+          if (paramName && body) {
+            // Create a function to transform each document
+            const mapFn = new Function(paramName, `return ${body}`);
+            
+            // Apply the mapping function to each document
+            const docs = await cursor.toArray();
+            for (const doc of docs) {
+              try {
+                const mappedValue = mapFn(doc);
+                results.push(mappedValue);
+              } catch (err) {
+                results.push({ error: `Error in map function: ${err.message}` });
+              }
+            }
+            
+            result = results;
+            metadata.count = docs.length;
+          } else {
+            throw new Error('Invalid map function');
+          }
+        } 
+        else if (hasPagination) {
+          // Apply pagination if requested
           const totalCount = await collection.countDocuments(query);
+          cursor = cursor.skip(skip).limit(pageSize);
+          
+          result = await cursor.toArray();
           metadata = {
-            totalCount,
             page,
             pageSize,
+            totalCount,
             totalPages: Math.ceil(totalCount / pageSize)
           };
-          
-          // Apply pagination
-          const findCursor = collection.find(query, mongoOptions)
-            .skip(skip)
-            .limit(pageSize);
-          
-          const documents = await findCursor.toArray();
-          
-          // Return paginated response
-          result = {
-            metadata,
-            documents
-          };
         } else {
-          // Non-paginated response
-          const findCursor = collection.find(query, mongoOptions);
-          result = await findCursor.toArray();
+          // Apply default limit if no pagination
+          if (!options.limit) {
+            cursor = cursor.limit(100); // Default limit
+          }
+          result = await cursor.toArray();
+          metadata.count = result.length;
         }
         break;
         

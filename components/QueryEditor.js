@@ -69,34 +69,50 @@ const QueryEditor = ({
       // Track cursor operations
       const cursorOperations = [];
       
-      // Use a regex to find cursor operations chained to a query
-      const cursorMethodRegex = /\.(addOption|allowDiskUse|allowPartialResults|batchSize|close|isClosed|collation|comment|count|explain|forEach|hasNext|hint|isExhausted|itcount|limit|map|max|maxAwaitTimeMS|maxTimeMS|min|next|noCursorTimeout|objsLeftInBatch|pretty|readConcern|readPref|returnKey|showRecordId|size|skip|sort|tailable|toArray|tryNext)\(([^)]*)\)/g;
+      // First, identify the base query using a simpler approach
+      // Use regex to find "db.collection.operation(...)"
+      const dbOpRegex = /db\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\s*\([^)]*\)/;
+      const baseMatch = dbOpRegex.exec(queryStr);
       
-      // Find all cursor operations
-      let lastIndex = 0;
-      let match;
-      let baseQuery = queryStr;
-      
-      while ((match = cursorMethodRegex.exec(queryStr)) !== null) {
-        const fullMatch = match[0];
-        const cursorMethod = match[1];
-        const cursorArgs = match[2];
-        
-        // Store the cursor operation
-        cursorOperations.push({
-          method: cursorMethod,
-          args: cursorArgs
-        });
-        
-        // Track where this match ends for later extraction of base query
-        lastIndex = match.index + fullMatch.length;
+      if (!baseMatch) {
+        throw new Error('Invalid MongoDB query format. Use: db.collection.operation(parameters)');
       }
       
-      // If we found cursor operations, extract the base query
-      if (cursorOperations.length > 0) {
-        // The base query is everything up to the first cursor operation
-        const firstOpIndex = queryStr.indexOf(`.${cursorOperations[0].method}`);
-        baseQuery = queryStr.substring(0, firstOpIndex);
+      const baseQuery = baseMatch[0];
+      let remainingStr = queryStr.substring(baseMatch.index + baseQuery.length);
+      
+      // Now parse cursor operations one by one, handling nested functions properly
+      while (remainingStr.trim().startsWith('.')) {
+        // Extract the cursor method name
+        const methodMatch = /^\.\s*([a-zA-Z0-9_]+)\s*\(/.exec(remainingStr);
+        if (!methodMatch) break;
+        
+        const methodName = methodMatch[1];
+        remainingStr = remainingStr.substring(methodMatch[0].length);
+        
+        // Now extract the arguments by tracking parentheses
+        let args = '';
+        let depth = 1; // We're already inside the first opening parenthesis
+        let i = 0;
+        
+        while (i < remainingStr.length && depth > 0) {
+          if (remainingStr[i] === '(') depth++;
+          else if (remainingStr[i] === ')') depth--;
+          
+          if (depth > 0) {
+            args += remainingStr[i];
+          }
+          i++;
+        }
+        
+        // Add this cursor operation
+        cursorOperations.push({
+          method: methodName,
+          args: args
+        });
+        
+        // Move past the closing parenthesis
+        remainingStr = remainingStr.substring(i);
       }
       
       // Look for sort operator after the main query
@@ -116,13 +132,13 @@ const QueryEditor = ({
       
       // Match the MongoDB shell pattern: db.collection.operation(parameters)
       const regex = /db\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\((.*)\)$/s;
-      const baseMatch = baseQuery.match(regex);
+      const parsedBaseMatch = baseQuery.match(regex);
       
-      if (!baseMatch) {
+      if (!parsedBaseMatch) {
         throw new Error('Invalid MongoDB query format. Use: db.collection.operation(parameters)');
       }
       
-      const [, collection, operation, paramsStr] = baseMatch;
+      const [, collection, operation, paramsStr] = parsedBaseMatch;
       
       // Determine the effective operation based on cursor operations
       let effectiveOperation = operation;
@@ -312,6 +328,103 @@ const QueryEditor = ({
               }
             }
             break;
+          case 'forEach':
+            if (['find', 'aggregate'].includes(apiOperation)) {
+              try {
+                // Extract the function body from the forEach argument
+                const functionBody = cursorOp.args.trim();
+                
+                // Parse the function to get the parameter name and body
+                // Improved regex that's more robust for different function formats
+                const functionMatch = /function\s*\(([^)]*)\)\s*{([\s\S]*)}/i.exec(functionBody);
+                
+                if (functionMatch) {
+                  const paramName = functionMatch[1].trim();
+                  const fnBody = functionMatch[2].trim();
+                  
+                  // Store the forEach function details
+                  options.forEach = {
+                    paramName,
+                    body: fnBody
+                  };
+                  
+                  // Since forEach is a terminal operation, we need to tell the backend
+                  options.processingMode = 'forEach';
+                } else {
+                  // Try a more lenient approach to parse the function
+                  // This handles cases where the function might be malformed in the cursor operation extraction
+                  const fullFunctionStr = `function(${cursorOp.args}`;
+                  const openBraceIdx = fullFunctionStr.indexOf('{');
+                  
+                  if (openBraceIdx > -1) {
+                    // Extract parameter name from between parentheses and opening brace
+                    const paramStr = fullFunctionStr.substring(9, openBraceIdx).trim();
+                    const paramName = paramStr.replace(/[()]/g, '').trim();
+                    
+                    // Try to find the closing brace by counting opening and closing braces
+                    let braceCount = 1;
+                    let closeBraceIdx = -1;
+                    
+                    for (let i = openBraceIdx + 1; i < fullFunctionStr.length; i++) {
+                      if (fullFunctionStr[i] === '{') braceCount++;
+                      if (fullFunctionStr[i] === '}') braceCount--;
+                      
+                      if (braceCount === 0) {
+                        closeBraceIdx = i;
+                        break;
+                      }
+                    }
+                    
+                    if (closeBraceIdx > -1) {
+                      const fnBody = fullFunctionStr.substring(openBraceIdx + 1, closeBraceIdx).trim();
+                      
+                      options.forEach = {
+                        paramName,
+                        body: fnBody
+                      };
+                      
+                      options.processingMode = 'forEach';
+                    } else {
+                      console.warn('Could not find closing brace in forEach function');
+                    }
+                  } else {
+                    console.warn('Invalid forEach function format:', functionBody);
+                  }
+                }
+              } catch (e) {
+                console.warn('Error parsing forEach function:', e);
+              }
+            }
+            break;
+          case 'map':
+            if (['find', 'aggregate'].includes(apiOperation)) {
+              try {
+                // Extract the function body from the map argument
+                const functionBody = cursorOp.args.trim();
+                
+                // Parse the function to get the parameter name and body
+                const functionMatch = /function\s*\(([^)]*)\)\s*{([\s\S]*)}/i.exec(functionBody);
+                
+                if (functionMatch) {
+                  const paramName = functionMatch[1].trim();
+                  const fnBody = functionMatch[2].trim();
+                  
+                  // Store the map function details
+                  options.map = {
+                    paramName,
+                    body: fnBody
+                  };
+                  
+                  // Tell the backend this is a map operation
+                  options.processingMode = 'map';
+                } else {
+                  console.warn('Invalid map function format:', functionBody);
+                }
+              } catch (e) {
+                console.warn('Error parsing map function:', e);
+              }
+            }
+            break;
           case 'comment':
             if (['find', 'findOne', 'aggregate', 'count'].includes(apiOperation)) {
               try {
@@ -338,6 +451,55 @@ const QueryEditor = ({
             break;
           case 'pretty':
             options.pretty = true;
+            break;
+          case 'allowDiskUse':
+            if (['find', 'aggregate'].includes(apiOperation)) {
+              options.allowDiskUse = cursorOp.args ? cursorOp.args.trim() === 'true' : true;
+            }
+            break;
+          case 'batchSize':
+            if (['find', 'aggregate'].includes(apiOperation)) {
+              try {
+                options.batchSize = parseInt(cursorOp.args);
+              } catch (e) {
+                console.warn('Invalid batchSize value:', cursorOp.args);
+              }
+            }
+            break;
+          case 'collation':
+            if (['find', 'findOne', 'aggregate', 'count'].includes(apiOperation)) {
+              try {
+                const collationStr = cursorOp.args.replace(/(\w+):/g, '"$1":');
+                options.collation = JSON.parse(collationStr);
+              } catch (e) {
+                console.warn('Invalid collation value:', cursorOp.args);
+              }
+            }
+            break;
+          case 'readConcern':
+            if (['find', 'findOne', 'aggregate', 'count'].includes(apiOperation)) {
+              options.readConcern = { level: cursorOp.args.replace(/['"]/g, '') };
+            }
+            break;
+          case 'readPref':
+            if (['find', 'findOne', 'aggregate', 'count'].includes(apiOperation)) {
+              options.readPreference = cursorOp.args.replace(/['"]/g, '');
+            }
+            break;
+          case 'noCursorTimeout':
+            if (['find', 'aggregate'].includes(apiOperation)) {
+              options.noCursorTimeout = cursorOp.args ? cursorOp.args.trim() === 'true' : true;
+            }
+            break;
+          case 'returnKey':
+            if (['find', 'aggregate'].includes(apiOperation)) {
+              options.returnKey = cursorOp.args ? cursorOp.args.trim() === 'true' : true;
+            }
+            break;
+          case 'showRecordId':
+            if (['find', 'aggregate'].includes(apiOperation)) {
+              options.showRecordId = cursorOp.args ? cursorOp.args.trim() === 'true' : true;
+            }
             break;
           // Add more cursor operations as needed
         }
