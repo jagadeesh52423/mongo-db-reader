@@ -305,13 +305,14 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
   };
 
   const drawer = (
-    <div>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <Toolbar sx={{ 
         borderBottom: 1, 
         borderColor: 'divider',
         display: 'flex',
         alignItems: 'center',
-        px: 2
+        px: 2,
+        flexShrink: 0 // Prevent toolbar from shrinking
       }}>
         <img src="/globe.svg" alt="Logo" style={{ width: 24, height: 24, marginRight: 8 }} />
         <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
@@ -319,152 +320,156 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
         </Typography>
       </Toolbar>
 
-      <Box sx={{ px: 2, py: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-          Connections
-        </Typography>
-        {hasMultipleActiveConnections && (
-          <Tooltip title="Disconnect all connections">
-            <Button 
-              size="small" 
-              color="error" 
-              variant="outlined" 
-              onClick={disconnectAllDatabases}
-              startIcon={<PowerSettingsNewIcon fontSize="small" />}
-              sx={{ py: 0.5, fontSize: '0.75rem' }}
-            >
-              Disconnect All
-            </Button>
-          </Tooltip>
-        )}
-      </Box>
+      {/* Scrollable area */}
+      <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
+        <Box sx={{ px: 2, py: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+            Connections
+          </Typography>
+          {hasMultipleActiveConnections && (
+            <Tooltip title="Disconnect all connections">
+              <Button 
+                size="small" 
+                color="error" 
+                variant="outlined" 
+                onClick={disconnectAllDatabases}
+                startIcon={<PowerSettingsNewIcon fontSize="small" />}
+                sx={{ py: 0.5, fontSize: '0.75rem' }}
+              >
+                Disconnect All
+              </Button>
+            </Tooltip>
+          )}
+        </Box>
 
-      {/* Active Connections Section */}
-      {activeConnectionsArray.length > 0 && (
-        <>
-          <Box sx={{ display: 'flex', alignItems: 'center', px: 2, pt: 1 }}>
-            <FiberManualRecordIcon sx={{ fontSize: 10, color: 'success.main', mr: 0.5 }} />
-            <Typography variant="caption" color="text.secondary">
-              Active ({activeConnectionsArray.length})
-            </Typography>
-          </Box>
-          <List>
-            {activeConnectionsArray.map(([connectionId, connectionData], index) => {
-              const isActive = connectionId === currentConnectionId;
-              const isExpanded = expandedConnections[connectionId];
-              
-              return (
-                <React.Fragment key={connectionId}>
-                  <ListItemButton 
-                    selected={isActive}
-                    onClick={() => {
-                      if (isActive) {
-                        toggleConnection(connectionId);
-                      } else {
-                        focusConnection(connectionId);
-                      }
-                    }}
-                    onContextMenu={(e) => handleContextMenu(e, connectionId, true)}
-                    sx={{
-                      position: 'relative',
-                      '&::after': isActive ? {
-                        content: '""',
-                        position: 'absolute',
-                        left: 0,
-                        top: 0,
-                        height: '100%',
-                        width: '4px',
-                        backgroundColor: 'primary.main',
-                      } : {}
-                    }}
-                  >
-                    <ListItemIcon>
-                      {isExpanded ? <ExpandMoreIcon /> : <ChevronRightIcon />}
-                    </ListItemIcon>
-                    <ListItemIcon>
-                      <StorageIcon color={isActive ? "primary" : "success"} />
-                    </ListItemIcon>
-                    <ListItemText 
-                      primary={connectionData.connectionName || 'Unnamed Connection'}
-                      secondary={hasMultipleActiveConnections ? `Alt+${index + 1}` : null}
-                      primaryTypographyProps={{
-                        fontWeight: isActive ? 'bold' : 'normal',
-                        noWrap: true,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis'
+        {/* Active Connections Section */}
+        {activeConnectionsArray.length > 0 && (
+          <>
+            <Box sx={{ display: 'flex', alignItems: 'center', px: 2, pt: 1 }}>
+              <FiberManualRecordIcon sx={{ fontSize: 10, color: 'success.main', mr: 0.5 }} />
+              <Typography variant="caption" color="text.secondary">
+                Active ({activeConnectionsArray.length})
+              </Typography>
+            </Box>
+            <List>
+              {activeConnectionsArray.map(([connectionId, connectionData], index) => {
+                const isActive = connectionId === currentConnectionId;
+                const isExpanded = expandedConnections[connectionId];
+                
+                return (
+                  <React.Fragment key={connectionId}>
+                    <ListItemButton 
+                      selected={isActive}
+                      onClick={() => {
+                        if (isActive) {
+                          toggleConnection(connectionId);
+                        } else {
+                          focusConnection(connectionId);
+                        }
                       }}
-                      secondaryTypographyProps={{
-                        fontSize: '0.7rem'
-                      }}
-                    />
-                    <IconButton 
-                      size="small" 
-                      edge="end" 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        disconnectDatabase(connectionId);
-                      }}
-                      sx={{ 
-                        opacity: 0, 
-                        transition: 'opacity 0.2s',
-                        '&:hover': { opacity: '1 !important', color: 'error.main' },
-                        '.MuiListItemButton-root:hover &': { opacity: 0.5 }
+                      onContextMenu={(e) => handleContextMenu(e, connectionId, true)}
+                      sx={{
+                        position: 'relative',
+                        '&::after': isActive ? {
+                          content: '""',
+                          position: 'absolute',
+                          left: 0,
+                          top: 0,
+                          height: '100%',
+                          width: '4px',
+                          backgroundColor: 'primary.main',
+                        } : {}
                       }}
                     >
-                      <PowerSettingsNewIcon fontSize="small" />
-                    </IconButton>
-                  </ListItemButton>
-                  
-                  {/* Databases List */}
-                  <div style={{ display: isExpanded ? 'block' : 'none' }}>
-                    <List component="div" disablePadding>
-                      {connectionData.databases && connectionData.databases.map(dbName => 
-                        renderDatabase(connectionId, dbName, connectionData)
-                      )}
-                    </List>
-                  </div>
-                </React.Fragment>
-              );
-            })}
-          </List>
-        </>
-      )}
+                      <ListItemIcon>
+                        {isExpanded ? <ExpandMoreIcon /> : <ChevronRightIcon />}
+                      </ListItemIcon>
+                      <ListItemIcon>
+                        <StorageIcon color={isActive ? "primary" : "success"} />
+                      </ListItemIcon>
+                      <ListItemText 
+                        primary={connectionData.connectionName || 'Unnamed Connection'}
+                        secondary={hasMultipleActiveConnections ? `Alt+${index + 1}` : null}
+                        primaryTypographyProps={{
+                          fontWeight: isActive ? 'bold' : 'normal',
+                          noWrap: true,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis'
+                        }}
+                        secondaryTypographyProps={{
+                          fontSize: '0.7rem'
+                        }}
+                      />
+                      <IconButton 
+                        size="small" 
+                        edge="end" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          disconnectDatabase(connectionId);
+                        }}
+                        sx={{ 
+                          opacity: 0, 
+                          transition: 'opacity 0.2s',
+                          '&:hover': { opacity: '1 !important', color: 'error.main' },
+                          '.MuiListItemButton-root:hover &': { opacity: 0.5 }
+                        }}
+                      >
+                        <PowerSettingsNewIcon fontSize="small" />
+                      </IconButton>
+                    </ListItemButton>
+                    
+                    {/* Databases List */}
+                    <div style={{ display: isExpanded ? 'block' : 'none' }}>
+                      <List component="div" disablePadding>
+                        {connectionData.databases && connectionData.databases.map(dbName => 
+                          renderDatabase(connectionId, dbName, connectionData)
+                        )}
+                      </List>
+                    </div>
+                  </React.Fragment>
+                );
+              })}
+            </List>
+          </>
+        )}
+        
+        {/* Saved Connections Section */}
+        <Divider sx={{ my: 1 }} />
+        {connections.filter(conn => !activeConnections[conn._id]).length > 0 && (
+          <>
+            <Box sx={{ display: 'flex', alignItems: 'center', px: 2, pt: 1 }}>
+              <FiberManualRecordIcon sx={{ fontSize: 10, color: 'text.disabled', mr: 0.5 }} />
+              <Typography variant="caption" color="text.secondary">
+                Saved ({connections.filter(conn => !activeConnections[conn._id]).length})
+              </Typography>
+            </Box>
+            <List>
+              {connections.filter(conn => !activeConnections[conn._id]).map(connection => (
+                <ListItemButton 
+                  key={connection._id}
+                  onClick={() => handleConnect(connection._id)}
+                  onContextMenu={(e) => handleContextMenu(e, connection._id, false)}
+                >
+                  <ListItemIcon sx={{ ml: 4 }}>
+                    <StorageIcon color="disabled" />
+                  </ListItemIcon>
+                  <ListItemText 
+                    primary={connection.name || 'Unnamed Connection'}
+                    primaryTypographyProps={{
+                      noWrap: true,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }}
+                  />
+                </ListItemButton>
+              ))}
+            </List>
+          </>
+        )}
+      </Box>
       
-      {/* Saved Connections Section */}
-      <Divider sx={{ my: 1 }} />
-      {connections.filter(conn => !activeConnections[conn._id]).length > 0 && (
-        <>
-          <Box sx={{ display: 'flex', alignItems: 'center', px: 2, pt: 1 }}>
-            <FiberManualRecordIcon sx={{ fontSize: 10, color: 'text.disabled', mr: 0.5 }} />
-            <Typography variant="caption" color="text.secondary">
-              Saved ({connections.filter(conn => !activeConnections[conn._id]).length})
-            </Typography>
-          </Box>
-          <List>
-            {connections.filter(conn => !activeConnections[conn._id]).map(connection => (
-              <ListItemButton 
-                key={connection._id}
-                onClick={() => handleConnect(connection._id)}
-                onContextMenu={(e) => handleContextMenu(e, connection._id, false)}
-              >
-                <ListItemIcon sx={{ ml: 4 }}>
-                  <StorageIcon color="disabled" />
-                </ListItemIcon>
-                <ListItemText 
-                  primary={connection.name || 'Unnamed Connection'}
-                  primaryTypographyProps={{
-                    noWrap: true,
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis'
-                  }}
-                />
-              </ListItemButton>
-            ))}
-          </List>
-        </>
-      )}
-      
-      <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider' }}>
+      {/* Fixed footer section */}
+      <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
         <Button
           fullWidth
           variant="contained"
@@ -475,7 +480,7 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
           New Connection
         </Button>
       </Box>
-    </div>
+    </Box>
   );
 
   return (
