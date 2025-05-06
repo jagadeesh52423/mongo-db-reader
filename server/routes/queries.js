@@ -269,4 +269,49 @@ router.post('/:connectionId/:dbName/:collectionName', async (req, res) => {
   }
 });
 
+router.post('/execute-query', async (req, res) => {
+  const { connectionId, database, collection, query, options = {} } = req.body;
+  
+  // Ensure the limit is a number and has a reasonable default
+  const limit = typeof options.limit === 'number' ? options.limit : 50;
+  
+  try {
+    // Connect to MongoDB
+    const client = await MongoClient.connect(connectionString, { useNewUrlParser: true, useUnifiedTopology: true });
+    const db = client.db(database);
+    const coll = db.collection(collection);
+    
+    let result;
+    
+    // Apply the limit to find operations
+    switch (query.type) {
+      case 'find':
+        const findCursor = coll.find(query.filter || {}, options);
+        // Apply the limit to the cursor
+        result = await findCursor.limit(limit).toArray();
+        break;
+      case 'aggregate':
+        // For aggregation, add a $limit stage at the end if not already present
+        const pipeline = Array.isArray(query.pipeline) ? query.pipeline : [];
+        const hasLimitStage = pipeline.some(stage => stage.$limit !== undefined);
+        
+        if (!hasLimitStage) {
+          pipeline.push({ $limit: limit });
+        }
+        
+        const aggCursor = coll.aggregate(pipeline, options);
+        result = await aggCursor.toArray();
+        break;
+      // ...handle other query types...
+    }
+    
+    // Close the client connection
+    await client.close();
+    
+    res.json(result);
+  } catch (error) {
+    // ...error handling...
+  }
+});
+
 module.exports = router;

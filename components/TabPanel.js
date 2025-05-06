@@ -1,5 +1,5 @@
 import React, { useState, useContext, useEffect } from 'react';
-import { Box, Tabs, Tab, IconButton, Tooltip, Chip, Typography } from '@mui/material';
+import { Box, Tabs, Tab, IconButton, Tooltip, Chip, Typography, Select, MenuItem, FormControl, InputLabel } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
 import QueryEditor from './QueryEditor';
@@ -34,6 +34,10 @@ const generateConnectionColor = (connectionId) => {
   return colors[Math.abs(hashCode) % colors.length];
 };
 
+// Add predefined row limit options
+const ROW_LIMIT_OPTIONS = [1, 5, 10, 25, 50, 100, 200];
+const DEFAULT_ROW_LIMIT = 50;
+
 const TabPanel = () => {
   const { connections, collections, activeConnection, activeDatabase, activeConnections } = useContext(ConnectionContext);
   const [tabs, setTabs] = useState([{ 
@@ -42,7 +46,8 @@ const TabPanel = () => {
     query: '', 
     results: null, 
     connectionId: null, // Track which connection this tab is associated with
-    database: null      // Track which database this tab is using
+    database: null,     // Track which database this tab is using
+    rowLimit: DEFAULT_ROW_LIMIT // Add row limit to tab state
   }]);
   const [activeTab, setActiveTab] = useState(0);
 
@@ -80,7 +85,8 @@ const TabPanel = () => {
           query: '', 
           results: null, 
           connectionId: null,
-          database: null
+          database: null,
+          rowLimit: DEFAULT_ROW_LIMIT
         }]);
         setActiveTab(0);
       } else {
@@ -116,7 +122,8 @@ const TabPanel = () => {
         query: defaultQuery,
         results: null,
         connectionId,
-        database
+        database,
+        rowLimit: DEFAULT_ROW_LIMIT
       };
       
       setTabs([...tabs, newTab]);
@@ -142,7 +149,8 @@ const TabPanel = () => {
       query: '', 
       results: null, 
       connectionId: activeConnection ? activeConnection._id : null,
-      database: activeDatabase || null
+      database: activeDatabase || null,
+      rowLimit: DEFAULT_ROW_LIMIT
     };
     setTabs([...tabs, newTab]);
     setActiveTab(tabs.length);
@@ -161,7 +169,8 @@ const TabPanel = () => {
         query: '', 
         results: null, 
         connectionId: activeConnection ? activeConnection._id : null,
-        database: activeDatabase || null
+        database: activeDatabase || null,
+        rowLimit: DEFAULT_ROW_LIMIT
       });
     }
     
@@ -187,6 +196,22 @@ const TabPanel = () => {
     const newTabs = [...tabs];
     newTabs[activeTab].selectedCollection = collection;
     setTabs(newTabs);
+  };
+
+  // Add a handler for changing row limit
+  const handleRowLimitChange = (event, tabIndex) => {
+    const newTabs = [...tabs];
+    
+    // Make sure the tab exists
+    if (newTabs[tabIndex]) {
+      // Initialize rowLimit if it doesn't exist
+      if (newTabs[tabIndex].rowLimit === undefined) {
+        newTabs[tabIndex].rowLimit = DEFAULT_ROW_LIMIT;
+      }
+      
+      newTabs[tabIndex].rowLimit = event.target.value;
+      setTabs(newTabs);
+    }
   };
 
   // Get connection name from connection ID
@@ -277,6 +302,27 @@ const TabPanel = () => {
             );
           })}
         </Tabs>
+
+        {/* Add row limit dropdown for the active tab with null checks */}
+        {tabs.length > 0 && activeTab >= 0 && activeTab < tabs.length && (
+          <Tooltip title="Number of documents to display">
+            <FormControl variant="standard" sx={{ m: 1, minWidth: 80 }}>
+              <InputLabel id={`row-limit-select-label-${activeTab}`}>Rows</InputLabel>
+              <Select
+                labelId={`row-limit-select-label-${activeTab}`}
+                id={`row-limit-select-${activeTab}`}
+                value={tabs[activeTab]?.rowLimit || DEFAULT_ROW_LIMIT}
+                onChange={(e) => handleRowLimitChange(e, activeTab)}
+                label="Rows"
+                size="small"
+              >
+                {ROW_LIMIT_OPTIONS.map(option => (
+                  <MenuItem key={option} value={option}>{option}</MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Tooltip>
+        )}
         <IconButton color="primary" onClick={handleAddTab}>
           <AddIcon />
         </IconButton>

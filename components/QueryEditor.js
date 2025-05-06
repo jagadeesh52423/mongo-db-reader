@@ -9,7 +9,8 @@ const QueryEditor = ({
   onUpdateQuery, 
   onQueryResult, 
   connectionId,
-  database
+  database,
+  tabData
 }) => {
   const { executeQuery, connections } = useContext(ConnectionContext);
   const [error, setError] = useState(null);
@@ -210,13 +211,21 @@ const QueryEditor = ({
     try {
       const parsedQuery = parseMongoQuery(queryString);
       
+      // Get the row limit from the current tab
+      const rowLimit = tabData && typeof tabData.rowLimit === 'number' 
+        ? tabData.rowLimit 
+        : 50; // Default to 50 if not set
+      
+      // Add the limit to the query options
+      const options = { ...parsedQuery.options, limit: rowLimit };
+      
       // Execute the query with the specified operation type
       // We need to pass the tab-specific connection and database information
       const result = await executeQuery(
         parsedQuery.data,
         parsedQuery.type, 
         {
-          ...parsedQuery.options,
+          ...options,
           collection: parsedQuery.collection,
           connectionId: connectionId,
           database: database
