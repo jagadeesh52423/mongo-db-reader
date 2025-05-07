@@ -1,5 +1,5 @@
 // Layout components
-export { Header, Sidebar, ServerStatusBar, TabPanel } from './layout';
+export { Header, Sidebar, ServerStatusBar, TabPanel, ResizableSidebar } from './layout';
 
 // Database components
 export { ConnectionDialog, ConnectionContextMenu } from './database';

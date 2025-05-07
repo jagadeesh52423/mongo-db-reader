@@ -7,10 +7,10 @@ import {
   Toolbar,
   useMediaQuery
 } from '@mui/material';
-import { Header, Sidebar, TabPanel, ServerStatusBar } from '../components';
+import { Header, TabPanel, ServerStatusBar, ResizableSidebar } from '../components';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
-const drawerWidth = 240;
+// Drawer width is now dynamic and controlled by ResizableSidebar component
 
 export default function Home({ themeMode, setThemeMode }) {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -50,56 +50,18 @@ export default function Home({ themeMode, setThemeMode }) {
           setThemeMode={setThemeMode}
         />
         
-        <Box
-          component="nav"
-          sx={{ width: { sm: drawerWidth }, flexShrink: { sm: 0 } }}
-        >
-          {/* Mobile drawer */}
-          <Drawer
-            variant="temporary"
-            open={mobileOpen}
-            onClose={handleDrawerToggle}
-            ModalProps={{
-              keepMounted: true, // Better open performance on mobile.
-            }}
-            sx={{
-              display: { xs: 'block', sm: 'none' },
-              '& .MuiDrawer-paper': { 
-                boxSizing: 'border-box', 
-                width: drawerWidth 
-              },
-            }}
-          >
-            <Toolbar />
-            <Sidebar />
-          </Drawer>
-          
-          {/* Desktop drawer */}
-          <Drawer
-            variant="permanent"
-            sx={{
-              display: { xs: 'none', sm: 'block' },
-              '& .MuiDrawer-paper': { 
-                boxSizing: 'border-box', 
-                width: drawerWidth,
-                height: '100%',
-                overflow: 'hidden'
-              },
-            }}
-            open
-          >
-            <Toolbar />
-            <Box sx={{ height: 'calc(100% - 64px)', overflow: 'auto' }}>
-              <Sidebar />
-            </Box>
-          </Drawer>
+        <Box component="nav" sx={{ flexShrink: { sm: 0 } }}>
+          <ResizableSidebar 
+            mobileOpen={mobileOpen} 
+            handleDrawerToggle={handleDrawerToggle} 
+          />
         </Box>
         
         <Box
           component="main"
           sx={{ 
             flexGrow: 1, 
-            width: { sm: `calc(100% - ${drawerWidth}px)` },
+            width: { sm: `calc(100% - 60px)` }, // Minimum width when sidebar is collapsed
             display: 'flex',
             flexDirection: 'column',
             height: '100%'

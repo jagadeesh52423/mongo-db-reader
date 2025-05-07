@@ -1,5 +1,5 @@
-import React, { useContext, useState, useRef, useEffect } from 'react';
-import { Box, Button, Paper, Typography, Tooltip, ButtonGroup, FormControl, Select, IconButton } from '@mui/material';
+import React, { useContext, useState, useRef, useEffect, useImperativeHandle, forwardRef } from 'react';
+import { Box, Button, Paper, Typography, Tooltip, ButtonGroup, FormControl, Select, IconButton, Alert } from '@mui/material';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
@@ -7,7 +7,7 @@ import { ConnectionContext } from '../../contexts/ConnectionContext';
 import { MongoHelpDrawer } from '../ui';
 import { UltraSimpleEditor } from '../editor';
 
-const QueryEditor = ({ 
+const QueryEditor = forwardRef(({ 
   id,
   query, 
   onUpdateQuery, 
@@ -15,11 +15,18 @@ const QueryEditor = ({
   connectionId,
   database,
   pagination = { page: 1, pageSize: 20 }
-}) => {
+}, ref) => {
   const { executeQuery, connections } = useContext(ConnectionContext);
   const [error, setError] = useState(null);
+  const [successMessage, setSuccessMessage] = useState(null);
   const editorRef = useRef(null);
   const [helpDrawerOpen, setHelpDrawerOpen] = useState(false);
+  const [currentCollection, setCurrentCollection] = useState(null);
+  
+  // Expose methods to parent component via ref
+  useImperativeHandle(ref, () => ({
+    handleUpdateRecord,
+  }));
 
   // Find the connection object based on connectionId
   const connection = connections.find(conn => conn._id === connectionId);
@@ -600,6 +607,9 @@ const QueryEditor = ({
     try {
       const parsedQuery = parseMongoQuery(queryString);
       
+      // Store the collection name for potential record updates
+      setCurrentCollection(parsedQuery.collection);
+      
       // Add pagination options for find and aggregate operations
       const options = {
         ...parsedQuery.options,
@@ -637,6 +647,54 @@ const QueryEditor = ({
         error: e.message,
         success: false
       };
+    }
+  };
+  
+  // Handle record update
+  const handleUpdateRecord = async (record) => {
+    if (!connectionId || !database || !currentCollection) {
+      setError('Cannot update record: Missing connection, database, or collection information');
+      return false;
+    }
+    
+    // Ensure record has an _id field
+    if (!record._id) {
+      setError('Cannot update record: Record must have an _id field');
+      return false;
+    }
+    
+    try {
+      // Prepare the update query
+      const options = {
+        collection: currentCollection,
+        connectionId: connectionId,
+        database: database
+      };
+      
+      // Execute the update query
+      const result = await executeQuery(
+        {
+          filter: { _id: record._id },
+          update: { $set: record }
+        },
+        'update',
+        options
+      );
+      
+      if (result.success) {
+        setSuccessMessage('Record updated successfully');
+        setTimeout(() => setSuccessMessage(null), 3000); // Hide after 3 seconds
+        
+        // Refresh the current query results
+        await handleRunCurrentQuery();
+        return true;
+      } else {
+        setError(`Failed to update record: ${result.message}`);
+        return false;
+      }
+    } catch (error) {
+      setError(`Error updating record: ${error.message}`);
+      return false;
     }
   };
 
@@ -775,11 +833,18 @@ const QueryEditor = ({
           sx={{ 
             p: 2, 
             bgcolor: 'error.dark',
-            color: 'error.contrastText'
+            color: 'error.contrastText',
+            mb: 2
           }}
         >
           {error}
         </Paper>
+      )}
+      
+      {successMessage && (
+        <Alert severity="success" sx={{ mb: 2 }}>
+          {successMessage}
+        </Alert>
       )}
       
       {/* MongoDB Help Drawer */}
@@ -789,6 +854,7 @@ const QueryEditor = ({
       />
     </Box>
   );
-};
+});
 
+// Export the component with forwardRef
 export default QueryEditor;

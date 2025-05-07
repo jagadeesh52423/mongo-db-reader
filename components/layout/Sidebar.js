@@ -21,7 +21,7 @@ export const COLLECTION_EVENTS = {
 
 const drawerWidth = 260;
 
-const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
+const Sidebar = ({ mobileOpen, handleDrawerToggle, isCollapsed }) => {
   const {
     connections,
     activeConnections,
@@ -357,13 +357,16 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
         borderColor: 'divider',
         display: 'flex',
         alignItems: 'center',
-        px: 2,
-        flexShrink: 0 // Prevent toolbar from shrinking
+        px: isCollapsed ? 1 : 2,
+        flexShrink: 0, // Prevent toolbar from shrinking
+        minHeight: '64px'
       }}>
-        <img src="/globe.svg" alt="Logo" style={{ width: 24, height: 24, marginRight: 8 }} />
-        <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-          MongoDB Reader
-        </Typography>
+        <img src="/globe.svg" alt="Logo" style={{ width: 24, height: 24, marginRight: isCollapsed ? 0 : 8 }} />
+        {!isCollapsed && (
+          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
+            MongoDB Reader
+          </Typography>
+        )}
       </Toolbar>
 
       {/* Scrollable area */}
@@ -388,45 +391,49 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
           maxHeight: 'calc(100vh - 128px)', // Subtract header and footer heights
         }}
       >
-        <Box sx={{ 
-          px: 2, 
-          py: 1.5, 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center',
-          position: 'sticky',
-          top: 0,
-          backgroundColor: theme => theme.palette.background.paper,
-          zIndex: 1,
-        }}>
-          <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 0.5 }}>
-            Connections
-          </Typography>
-          {hasMultipleActiveConnections && (
-            <Tooltip title="Disconnect all connections">
-              <Button 
-                size="small" 
-                color="error" 
-                variant="outlined" 
-                onClick={disconnectAllDatabases}
-                startIcon={<PowerSettingsNewIcon fontSize="small" />}
-                sx={{ py: 0.5, fontSize: '0.75rem' }}
-              >
-                Disconnect All
-              </Button>
-            </Tooltip>
-          )}
-        </Box>
+        {!isCollapsed && (
+          <Box sx={{ 
+            px: 2, 
+            py: 1.5, 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center',
+            position: 'sticky',
+            top: 0,
+            backgroundColor: theme => theme.palette.background.paper,
+            zIndex: 1,
+          }}>
+            <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Connections
+            </Typography>
+            {hasMultipleActiveConnections && (
+              <Tooltip title="Disconnect all connections">
+                <Button 
+                  size="small" 
+                  color="error" 
+                  variant="outlined" 
+                  onClick={disconnectAllDatabases}
+                  startIcon={<PowerSettingsNewIcon fontSize="small" />}
+                  sx={{ py: 0.5, fontSize: '0.75rem' }}
+                >
+                  Disconnect All
+                </Button>
+              </Tooltip>
+            )}
+          </Box>
+        )}
 
         {/* Active Connections Section */}
         {activeConnectionsArray.length > 0 && (
           <>
-            <Box sx={{ display: 'flex', alignItems: 'center', px: 2, pt: 1 }}>
-              <FiberManualRecordIcon sx={{ fontSize: 10, color: 'success.main', mr: 0.5 }} />
-              <Typography variant="caption" color="text.secondary">
-                Active ({activeConnectionsArray.length})
-              </Typography>
-            </Box>
+            {!isCollapsed && (
+              <Box sx={{ display: 'flex', alignItems: 'center', px: 2, pt: 1 }}>
+                <FiberManualRecordIcon sx={{ fontSize: 10, color: 'success.main', mr: 0.5 }} />
+                <Typography variant="caption" color="text.secondary">
+                  Active ({activeConnectionsArray.length})
+                </Typography>
+              </Box>
+            )}
             <List>
               {activeConnectionsArray.map(([connectionId, connectionData], index) => {
                 const isActive = connectionId === currentConnectionId;
@@ -437,7 +444,7 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
                     <ListItemButton 
                       selected={isActive}
                       onClick={() => {
-                        if (isActive) {
+                        if (isActive && !isCollapsed) {
                           toggleConnection(connectionId);
                         } else {
                           focusConnection(connectionId);
@@ -446,6 +453,7 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
                       onContextMenu={(e) => handleContextMenu(e, connectionId, true)}
                       sx={{
                         position: 'relative',
+                        px: isCollapsed ? 1 : 2,
                         '&::after': isActive ? {
                           content: '""',
                           position: 'absolute',
@@ -457,41 +465,47 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
                         } : {}
                       }}
                     >
-                      <ListItemIcon>
-                        {isExpanded ? <ExpandMoreIcon /> : <ChevronRightIcon />}
-                      </ListItemIcon>
-                      <ListItemIcon>
+                      {!isCollapsed && (
+                        <ListItemIcon>
+                          {isExpanded ? <ExpandMoreIcon /> : <ChevronRightIcon />}
+                        </ListItemIcon>
+                      )}
+                      <ListItemIcon sx={{ minWidth: isCollapsed ? 0 : 36, mr: isCollapsed ? 0 : 2 }}>
                         <StorageIcon color={isActive ? "primary" : "success"} />
                       </ListItemIcon>
-                      <ListItemText 
-                        primary={connectionData.connectionName || 'Unnamed Connection'}
-                        secondary={hasMultipleActiveConnections ? `Alt+${index + 1}` : null}
-                        primaryTypographyProps={{
-                          fontWeight: isActive ? 'bold' : 'normal',
-                          noWrap: true,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis'
-                        }}
-                        secondaryTypographyProps={{
-                          fontSize: '0.7rem'
-                        }}
-                      />
-                      <IconButton 
-                        size="small" 
-                        edge="end" 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          disconnectDatabase(connectionId);
-                        }}
-                        sx={{ 
-                          opacity: 0, 
-                          transition: 'opacity 0.2s',
-                          '&:hover': { opacity: '1 !important', color: 'error.main' },
-                          '.MuiListItemButton-root:hover &': { opacity: 0.5 }
-                        }}
-                      >
-                        <PowerSettingsNewIcon fontSize="small" />
-                      </IconButton>
+                      {!isCollapsed && (
+                        <ListItemText 
+                          primary={connectionData.connectionName || 'Unnamed Connection'}
+                          secondary={hasMultipleActiveConnections ? `Alt+${index + 1}` : null}
+                          primaryTypographyProps={{
+                            fontWeight: isActive ? 'bold' : 'normal',
+                            noWrap: true,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis'
+                          }}
+                          secondaryTypographyProps={{
+                            fontSize: '0.7rem'
+                          }}
+                        />
+                      )}
+                      {!isCollapsed && (
+                        <IconButton 
+                          size="small" 
+                          edge="end" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            disconnectDatabase(connectionId);
+                          }}
+                          sx={{ 
+                            opacity: 0, 
+                            transition: 'opacity 0.2s',
+                            '&:hover': { opacity: '1 !important', color: 'error.main' },
+                            '.MuiListItemButton-root:hover &': { opacity: 0.5 }
+                          }}
+                        >
+                          <PowerSettingsNewIcon fontSize="small" />
+                        </IconButton>
+                      )}
                     </ListItemButton>
                     
                     {/* Databases List */}
@@ -552,54 +566,33 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
       </Box>
       
       {/* Fixed footer section */}
-      <Box sx={{ p: 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
-        <Button
-          fullWidth
-          variant="contained"
-          color="primary"
-          startIcon={<AddIcon />}
-          onClick={() => window.dispatchEvent(new CustomEvent('open-connection-dialog'))}
-        >
-          New Connection
-        </Button>
+      <Box sx={{ p: isCollapsed ? 1 : 2, borderTop: 1, borderColor: 'divider', flexShrink: 0 }}>
+        {isCollapsed ? (
+          <IconButton
+            color="primary"
+            onClick={() => window.dispatchEvent(new CustomEvent('open-connection-dialog'))}
+            sx={{ width: '100%', height: '40px', margin: '0 auto', display: 'flex' }}
+          >
+            <AddIcon />
+          </IconButton>
+        ) : (
+          <Button
+            fullWidth
+            variant="contained"
+            color="primary"
+            startIcon={<AddIcon />}
+            onClick={() => window.dispatchEvent(new CustomEvent('open-connection-dialog'))}
+          >
+            New Connection
+          </Button>
+        )}
       </Box>
     </Box>
   );
 
   return (
     <>
-      <Drawer
-        variant="permanent"
-        sx={{
-          display: { xs: 'none', sm: 'block' },
-          width: drawerWidth,
-          flexShrink: 0,
-          '& .MuiDrawer-paper': {
-            width: drawerWidth,
-            boxSizing: 'border-box',
-            border: 'none',
-            boxShadow: 1
-          },
-        }}
-        open
-      >
-        {drawer}
-      </Drawer>
-      
-      <Drawer
-        variant="temporary"
-        open={mobileOpen}
-        onClose={handleDrawerToggle}
-        ModalProps={{
-          keepMounted: true, // Better performance on mobile
-        }}
-        sx={{
-          display: { xs: 'block', sm: 'none' },
-          '& .MuiDrawer-paper': { width: drawerWidth, boxSizing: 'border-box' },
-        }}
-      >
-        {drawer}
-      </Drawer>
+      {drawer}
       
       {contextMenu.isOpen && (
         <ConnectionContextMenu

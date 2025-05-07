@@ -46,7 +46,8 @@ const TabPanel = () => {
       page: 1,
       pageSize: 20,
       totalCount: 0
-    }
+    },
+    queryEditorRef: React.createRef() // Add ref for each tab's QueryEditor
   }]);
   const [activeTab, setActiveTab] = useState(0);
 
@@ -84,7 +85,8 @@ const TabPanel = () => {
           query: '', 
           results: null, 
           connectionId: null,
-          database: null
+          database: null,
+          queryEditorRef: React.createRef()
         }]);
         setActiveTab(0);
       } else {
@@ -120,7 +122,8 @@ const TabPanel = () => {
         query: defaultQuery,
         results: null,
         connectionId,
-        database
+        database,
+        queryEditorRef: React.createRef()
       };
       
       setTabs([...tabs, newTab]);
@@ -146,7 +149,8 @@ const TabPanel = () => {
       query: '', 
       results: null, 
       connectionId: activeConnection ? activeConnection._id : null,
-      database: activeDatabase || null
+      database: activeDatabase || null,
+      queryEditorRef: React.createRef()
     };
     setTabs([...tabs, newTab]);
     setActiveTab(tabs.length);
@@ -165,7 +169,8 @@ const TabPanel = () => {
         query: '', 
         results: null, 
         connectionId: activeConnection ? activeConnection._id : null,
-        database: activeDatabase || null
+        database: activeDatabase || null,
+        queryEditorRef: React.createRef()
       });
     }
     
@@ -379,6 +384,7 @@ const TabPanel = () => {
               )}
               <QueryEditor 
                 id={`query-editor-${tab.id}`}
+                ref={tab.queryEditorRef}
                 query={tab.query} 
                 onUpdateQuery={handleUpdateQuery}
                 onQueryResult={handleQueryResult}
@@ -389,6 +395,13 @@ const TabPanel = () => {
               <ResultsDisplay 
                 results={tab.results} 
                 onPageChange={handlePageChange}
+                onUpdateRecord={(record) => {
+                  // Use the ref to access the QueryEditor's handleUpdateRecord method
+                  if (tab.queryEditorRef && tab.queryEditorRef.current) {
+                    return tab.queryEditorRef.current.handleUpdateRecord(record);
+                  }
+                  return Promise.reject(new Error('Update function not available'));
+                }}
               />
             </Box>
           )}

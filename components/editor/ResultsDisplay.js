@@ -30,7 +30,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
-  Button
+  Button,
+  ListItemIcon
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
@@ -39,6 +40,9 @@ import ErrorIcon from '@mui/icons-material/Error';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import LaunchIcon from '@mui/icons-material/Launch';
+import EditIcon from '@mui/icons-material/Edit';
+
+import { RecordUpdateDialog } from '../ui';
 
 // Fallback simple JSON viewer component as default
 const SimpleJSONViewer = ({ data }) => (
@@ -99,11 +103,13 @@ const MongoQueryDisplay = ({ query }) => {
 };
 
 // Results display for a single query result
-const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
+const SingleResultDisplay = ({ results, onPageChange, pageable = false, onUpdateRecord }) => {
   const [viewMode, setViewMode] = useState('table');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [fieldJsonDialog, setFieldJsonDialog] = useState(null);
+  const [recordToUpdate, setRecordToUpdate] = useState(null);
+  const [updateLoading, setUpdateLoading] = useState(false);
   
   const handleChangeViewMode = (event, newValue) => {
     setViewMode(newValue);
@@ -170,6 +176,31 @@ const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
 
   const handleCloseFieldJsonDialog = () => {
     setFieldJsonDialog(null);
+  };
+  
+  // Record update dialog handlers
+  const handleOpenUpdateDialog = (record) => {
+    setRecordToUpdate(record);
+  };
+
+  const handleCloseUpdateDialog = () => {
+    setRecordToUpdate(null);
+  };
+
+  // Handle record update
+  const handleUpdateRecord = async (updatedRecord) => {
+    setUpdateLoading(true);
+    try {
+      // Call the parent's onUpdateRecord function with the updated record
+      if (onUpdateRecord) {
+        await onUpdateRecord(updatedRecord);
+      }
+      handleCloseUpdateDialog();
+    } catch (error) {
+      console.error('Error updating record:', error);
+    } finally {
+      setUpdateLoading(false);
+    }
   };
   
   // Show pagination if we have an array with more than one page of items
@@ -259,6 +290,7 @@ const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
                     row={row} 
                     fields={fields} 
                     onViewFieldJson={handleOpenFieldJsonDialog}
+                    onUpdateRecord={onUpdateRecord ? handleOpenUpdateDialog : undefined}
                   />
                 ))}
               </TableBody>
@@ -363,12 +395,24 @@ const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
           )}
         </DialogActions>
       </Dialog>
+
+      {/* Record Update Dialog */}
+      {recordToUpdate && (
+        <RecordUpdateDialog
+          open={!!recordToUpdate}
+          onClose={handleCloseUpdateDialog}
+          record={recordToUpdate}
+          recordId={recordToUpdate._id || recordToUpdate.id}
+          onUpdate={handleUpdateRecord}
+          loading={updateLoading}
+        />
+      )}
     </Box>
   );
 };
 
 // Component for multi-query results display
-const MultiQueryResultDisplay = ({ results }) => {
+const MultiQueryResultDisplay = ({ results, onUpdateRecord }) => {
   const [expandedPanel, setExpandedPanel] = useState(0);
 
   const handlePanelChange = (panel) => (event, isExpanded) => {
@@ -435,7 +479,10 @@ const MultiQueryResultDisplay = ({ results }) => {
                 <Box>
                   <Typography variant="subtitle2">Result:</Typography>
                   <Paper variant="outlined" sx={{ bgcolor: 'background.paper' }}>
-                    <SingleResultDisplay results={result.result} />
+                    <SingleResultDisplay 
+                      results={result.result} 
+                      onUpdateRecord={onUpdateRecord}
+                    />
                   </Paper>
                 </Box>
               ) : (
@@ -464,7 +511,7 @@ const MultiQueryResultDisplay = ({ results }) => {
 };
 
 // Component for table rows that can expand to show nested objects
-const ExpandableTableRow = ({ row, fields, onViewFieldJson }) => {
+const ExpandableTableRow = ({ row, fields, onViewFieldJson, onUpdateRecord }) => {
   const [expanded, setExpanded] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [selectedField, setSelectedField] = useState(null);
@@ -614,12 +661,20 @@ const ExpandableTableRow = ({ row, fields, onViewFieldJson }) => {
     }
     handleCloseContextMenu();
   };
+  
+  // Handle the update record button click
+  const handleUpdateClick = () => {
+    if (onUpdateRecord) {
+      onUpdateRecord(row);
+    }
+  };
 
   return (
     <>
       <TableRow>
         <TableCell 
           padding="checkbox"
+          align="center"
           sx={{ 
             position: 'sticky', 
             left: 0, 
@@ -627,16 +682,41 @@ const ExpandableTableRow = ({ row, fields, onViewFieldJson }) => {
             zIndex: 1,
             borderRight: '1px solid',
             borderRightColor: 'divider',
+            width: '70px',
+            minWidth: '70px',
+            // maxWidth: '70px',
+            padding: '6px', // Tighter padding
+            textAlign: 'center',
+            px: 0 // No horizontal padding
           }}
         >
-          <Tooltip title="View record as JSON">
-            <IconButton size="small" onClick={toggleExpand}>
+          <Box sx={{ 
+              display: 'inline-flex', 
+              alignItems: 'center', 
+              justifyContent: 'center',
+              gap: '2px' // Tighter spacing between buttons
+            }}>
+            <IconButton 
+              size="small" 
+              onClick={toggleExpand}
+              sx={{ padding: '4px' }} // Smaller padding for the icon button
+            >
               {expanded ? 
                 <ExpandLessIcon fontSize="small" /> :
                 <VisibilityIcon fontSize="small" />
               }
             </IconButton>
-          </Tooltip>
+            {onUpdateRecord && (
+              <IconButton 
+                size="small" 
+                onClick={handleUpdateClick} 
+                color="primary"
+                sx={{ padding: '4px' }} // Smaller padding for the icon button
+              >
+                <EditIcon fontSize="small" />
+              </IconButton>
+            )}
+          </Box>
         </TableCell>
         {fields.map((field, index) => {
           const value = row[field];
@@ -698,6 +778,24 @@ const ExpandableTableRow = ({ row, fields, onViewFieldJson }) => {
                   overflowX: 'auto',
                 }}
               >
+                <Box sx={{ 
+                  display: 'flex', 
+                  justifyContent: 'flex-end', 
+                  mb: 1 
+                }}>
+                  {onUpdateRecord && (
+                    <Button 
+                      size="small" 
+                      variant="outlined" 
+                      color="primary"
+                      startIcon={<EditIcon />}
+                      onClick={() => onUpdateRecord(row)}
+                    >
+                      Update Record
+                    </Button>
+                  )}
+                </Box>
+                
                 <Paper 
                   variant="outlined" 
                   sx={{ 
@@ -730,8 +828,13 @@ const ExpandableTableRow = ({ row, fields, onViewFieldJson }) => {
           onViewFieldJson={handleViewFieldJson}
           fieldType={getFieldType(selectedValue)}
           onQueryOption={(option) => {
-            handleQueryOption(option);
+            // placeholder for query option handling
+            handleCloseContextMenu();
           }}
+          onUpdateRecord={onUpdateRecord && (() => {
+            onUpdateRecord(row);
+            handleCloseContextMenu();
+          })}
         />
       )}
     </>
@@ -739,7 +842,18 @@ const ExpandableTableRow = ({ row, fields, onViewFieldJson }) => {
 };
 
 // Component for context menu on table cells
-const TableCellContextMenu = ({ x, y, onClose, onCopyValue, onCopyRecord, onCopyField, onViewFieldJson, fieldType, onQueryOption }) => {
+const TableCellContextMenu = ({ 
+  x, 
+  y, 
+  onClose, 
+  onCopyValue, 
+  onCopyRecord, 
+  onCopyField, 
+  onViewFieldJson, 
+  fieldType, 
+  onQueryOption, 
+  onUpdateRecord 
+}) => {
   // Position the menu at the mouse position
   const menuPosition = {
     left: x,
@@ -810,6 +924,14 @@ const TableCellContextMenu = ({ x, y, onClose, onCopyValue, onCopyRecord, onCopy
       anchorReference="anchorPosition"
       anchorPosition={menuPosition}
     >
+      {onUpdateRecord && (
+        <MenuItem onClick={onUpdateRecord}>
+          <ListItemIcon>
+            <EditIcon fontSize="small" />
+          </ListItemIcon>
+          <Typography variant="body2">Update Record</Typography>
+        </MenuItem>
+      )}
       <MenuItem onClick={onViewFieldJson}>
         <Typography variant="body2">View JSON for this field</Typography>
       </MenuItem>
@@ -843,7 +965,7 @@ const TableCellContextMenu = ({ x, y, onClose, onCopyValue, onCopyRecord, onCopy
 };
 
 // Main ResultsDisplay component
-const ResultsDisplay = ({ results, onPageChange }) => {
+const ResultsDisplay = ({ results, onPageChange, onUpdateRecord }) => {
   if (!results) {
     return (
       <Paper variant="outlined" sx={{ p: 3, bgcolor: 'background.paper' }}>
@@ -904,12 +1026,16 @@ const ResultsDisplay = ({ results, onPageChange }) => {
   return (
     <Paper variant="outlined" sx={{ bgcolor: 'background.paper', flexGrow: 1, overflow: 'auto' }}>
       {isMultiQuery ? (
-        <MultiQueryResultDisplay results={results.results} />
+        <MultiQueryResultDisplay 
+          results={results.results} 
+          onUpdateRecord={onUpdateRecord}
+        />
       ) : (
         <SingleResultDisplay 
           results={results} 
           onPageChange={onPageChange}
           pageable={true}
+          onUpdateRecord={onUpdateRecord}
         />
       )}
     </Paper>

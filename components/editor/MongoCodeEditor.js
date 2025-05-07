@@ -134,6 +134,23 @@ const MongoCodeEditor = forwardRef(({
       if (!viewRef.current) return 0;
       return viewRef.current.state.selection.main.head;
     },
+    // Set cursor position
+    setCursorPosition: (pos) => {
+      if (!viewRef.current) return;
+      
+      // Ensure position is within document bounds
+      const docLength = viewRef.current.state.doc.length;
+      const safePos = Math.min(Math.max(0, pos), docLength);
+      
+      // Create a new transaction to set the selection
+      const transaction = viewRef.current.state.update({
+        selection: {anchor: safePos, head: safePos},
+        scrollIntoView: true
+      });
+      
+      // Dispatch the transaction to update the editor state
+      viewRef.current.dispatch(transaction);
+    },
     // Get current selection
     getSelection: () => {
       if (!viewRef.current) return { from: 0, to: 0, text: "" };
@@ -203,6 +220,9 @@ const MongoCodeEditor = forwardRef(({
   // Track internal changes to avoid update loops
   const isInternalChange = useRef(false);
   
+  // Track if editor has focus
+  const hasFocus = useRef(false);
+  
   // Initialize the editor
   const initEditor = useCallback((content = value || '', cursorPos = 0) => {
     if (!editorRef.current) return;
@@ -219,17 +239,39 @@ const MongoCodeEditor = forwardRef(({
       autocompletion({ override: [mongoCompletions] }),
       closeBrackets(),
       placeholder(placeholderText),
+      EditorView.domEventHandlers({
+        focus: () => {
+          hasFocus.current = true;
+          return false;
+        },
+        blur: () => {
+          hasFocus.current = false;
+          return false;
+        }
+      }),
       EditorView.updateListener.of(update => {
         if (update.docChanged) {
-          // Mark this as an internal change
+          // Save selection first
+          const sel = update.state.selection.main;
+          const selectionToSave = { anchor: sel.anchor, head: sel.head };
+          
+          // Mark this as an internal change to prevent re-render loop
           isInternalChange.current = true;
           
           // Call onChange with the new document content
-          onChange(update.state.doc.toString());
+          const newContent = update.state.doc.toString();
           
-          // Reset the flag after a short delay to allow React to process the state update
+          // Use the EditorView's own transaction API instead of React state updates
+          onChange(newContent);
+            
+          // Reset the flag after a short delay
           setTimeout(() => {
             isInternalChange.current = false;
+            
+            // Ensure focus is maintained if it was active
+            if (hasFocus.current && viewRef.current) {
+              viewRef.current.focus();
+            }
           }, 0);
         }
         
@@ -265,17 +307,7 @@ const MongoCodeEditor = forwardRef(({
     viewRef.current = view;
   }, [isDarkMode, value, placeholderText, createThemeExtension, onChange]);
 
-  // Init editor on mount
-  useEffect(() => {
-    initEditor();
-    
-    // Clean up on unmount
-    return () => {
-      if (viewRef.current) {
-        viewRef.current.destroy();
-      }
-    };
-  }, [initEditor]);
+  // No longer needed as editor initialization is now done in the ref callback
 
   // Re-create the editor when the theme changes
   useEffect(() => {
@@ -324,20 +356,64 @@ const MongoCodeEditor = forwardRef(({
     }
   }, [value]);
 
+  // Create the editor container element - must come before any useEffects
+  const containerRef = useRef(null);
+  
+  // Initialize container element once
+  useEffect(() => {
+    // Create div manually to prevent re-rendering issues
+    const div = document.createElement('div');
+    div.className = "mongo-code-editor";
+    div.style.height = height;
+    div.style.overflow = 'auto';
+    div.style.fontFamily = 'monospace';
+    div.style.borderRadius = '4px';
+    div.style.transition = 'border-color 0.2s ease-in-out';
+    div.style.border = isDarkMode 
+      ? '1px solid rgba(255, 255, 255, 0.23)' 
+      : '1px solid rgba(0, 0, 0, 0.23)';
+    
+    // Store the div in our ref
+    editorRef.current = div;
+    
+    // Clean up function
+    return () => {
+      if (viewRef.current) {
+        viewRef.current.destroy();
+        viewRef.current = null;
+      }
+      editorRef.current = null;
+    };
+  }, [height, isDarkMode]);
+  
+  // Update border style when theme changes
+  useEffect(() => {
+    if (editorRef.current) {
+      editorRef.current.style.border = isDarkMode 
+        ? '1px solid rgba(255, 255, 255, 0.23)' 
+        : '1px solid rgba(0, 0, 0, 0.23)';
+    }
+  }, [isDarkMode]);
+  
+  // Render the container div
   return (
     <div 
-      ref={editorRef}
-      style={{ 
-        height, 
-        overflow: 'auto',
-        fontFamily: 'monospace',
-        border: isDarkMode 
-          ? '1px solid rgba(255, 255, 255, 0.23)' 
-          : '1px solid rgba(0, 0, 0, 0.23)',
-        borderRadius: '4px',
-        transition: 'border-color 0.2s ease-in-out',
+      ref={node => {
+        containerRef.current = node;
+        if (node && editorRef.current && !node.contains(editorRef.current)) {
+          // Only append if not already appended
+          node.appendChild(editorRef.current);
+          
+          // Initialize editor if needed
+          if (!viewRef.current && editorRef.current) {
+            initEditor();
+          }
+        }
       }}
-      className="mongo-code-editor"
+      style={{ 
+        height: '100%', 
+        width: '100%'
+      }}
     />
   );
 });
