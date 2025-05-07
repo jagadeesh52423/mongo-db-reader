@@ -125,6 +125,7 @@ const ExpandableTableRow = ({ row, fields }) => {
   const [expanded, setExpanded] = useState(false);
   const [contextMenu, setContextMenu] = useState(null);
   const [selectedField, setSelectedField] = useState(null);
+  const [selectedValue, setSelectedValue] = useState(null);
   
   // Maximum width for cell content in pixels
   const MAX_CELL_WIDTH = 150;
@@ -162,24 +163,50 @@ const ExpandableTableRow = ({ row, fields }) => {
     return truncateText(strValue, MAX_CHARS);
   };
   
+  // Determine the data type of a value
+  const getFieldType = (value) => {
+    if (value === null) return 'null';
+    if (value === undefined) return 'undefined';
+    
+    const type = typeof value;
+    
+    // Check if it's a date string
+    if (type === 'string') {
+      // ISO date format
+      const isoDatePattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?$/;
+      
+      // Standard date formats YYYY-MM-DD or YYYY/MM/DD
+      const standardDatePattern = /^\d{4}[-/](0?[1-9]|1[012])[-/](0?[1-9]|[12][0-9]|3[01])$/;
+      
+      if (isoDatePattern.test(value) || standardDatePattern.test(value)) {
+        return 'date';
+      }
+      return 'string';
+    }
+    
+    if (type === 'number') return 'number';
+    if (type === 'boolean') return 'boolean';
+    
+    return type;
+  };
+  
   // Handle right-click on a cell
   const handleContextMenu = (event, field, value) => {
     event.preventDefault();
     
-    // Only show context menu for non-complex values
-    if (value === null || typeof value !== 'object') {
-      setContextMenu({
-        mouseX: event.clientX,
-        mouseY: event.clientY,
-      });
-      setSelectedField(field);
-    }
+    setContextMenu({
+      mouseX: event.clientX,
+      mouseY: event.clientY,
+    });
+    setSelectedField(field);
+    setSelectedValue(value);
   };
   
   // Close the context menu
   const handleCloseContextMenu = () => {
     setContextMenu(null);
     setSelectedField(null);
+    setSelectedValue(null);
   };
   
   // View only this field's value in JSON view
@@ -224,6 +251,24 @@ const ExpandableTableRow = ({ row, fields }) => {
     }
     
     navigator.clipboard.writeText(`"${selectedField}": ${formattedValue}`);
+    handleCloseContextMenu();
+  };
+
+  // Handle query option selection
+  const handleQueryOption = (option) => {
+    console.log(`Query option selected: ${option.label} (${option.value}) for field: ${selectedField}, value: ${selectedValue}`);
+    
+    // Create and trigger a custom event for query building
+    const event = new CustomEvent('build-query', {
+      detail: { 
+        field: selectedField, 
+        value: selectedValue,
+        operator: option.value,
+        label: option.label
+      }
+    });
+    window.dispatchEvent(event);
+    
     handleCloseContextMenu();
   };
 
@@ -294,29 +339,90 @@ const ExpandableTableRow = ({ row, fields }) => {
       )}
       
       {/* Context menu for right-click on cells */}
-      <Menu
-        open={contextMenu !== null}
-        onClose={handleCloseContextMenu}
-        anchorReference="anchorPosition"
-        anchorPosition={
-          contextMenu !== null
-            ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
-            : undefined
-        }
-      >
-        <MenuItem onClick={handleViewFieldJson}>
-          <Typography variant="body2">View JSON for this field</Typography>
-        </MenuItem>
-        <Divider />
-        <MenuItem onClick={handleCopyValue}>
-          <Typography variant="body2">Copy value</Typography>
-        </MenuItem>
-        <MenuItem onClick={handleCopyKeyValue}>
-          <Typography variant="body2">Copy as JSON key-value</Typography>
-        </MenuItem>
-      </Menu>
+      {contextMenu && (
+        <Menu
+          open={true}
+          onClose={handleCloseContextMenu}
+          anchorReference="anchorPosition"
+          anchorPosition={{ top: contextMenu.mouseY, left: contextMenu.mouseX }}
+        >
+          <MenuItem onClick={handleViewFieldJson}>
+            <Typography variant="body2">View JSON for this field</Typography>
+          </MenuItem>
+          <Divider />
+          <MenuItem onClick={handleCopyValue}>
+            <Typography variant="body2">Copy value</Typography>
+          </MenuItem>
+          <MenuItem onClick={handleCopyKeyValue}>
+            <Typography variant="body2">Copy as JSON key-value</Typography>
+          </MenuItem>
+          
+          {/* Query Options */}
+          <Divider />
+          <MenuItem disabled>
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>Query Options</Typography>
+          </MenuItem>
+          
+          {getQueryOptionsForType(getFieldType(selectedValue)).map((option) => (
+            <MenuItem 
+              key={option.value} 
+              onClick={() => handleQueryOption(option)}
+              sx={{ pl: 3 }}
+            >
+              <Typography variant="body2">{option.label}</Typography>
+            </MenuItem>
+          ))}
+        </Menu>
+      )}
     </>
   );
+};
+
+// Function to get query options based on field type
+const getQueryOptionsForType = (fieldType) => {
+  if (fieldType === 'string') {
+    return [
+      { label: 'Equals', value: '$eq' },
+      { label: 'Not Equals', value: '$ne' },
+      { label: 'Contains', value: '$regex' },
+      { label: 'Starts With', value: '$regex^' },
+      { label: 'Ends With', value: '$regex$' },
+    ];
+  } else if (fieldType === 'number') {
+    return [
+      { label: 'Equals', value: '$eq' },
+      { label: 'Not Equals', value: '$ne' },
+      { label: 'Greater Than', value: '$gt' },
+      { label: 'Greater Than or Equals', value: '$gte' },
+      { label: 'Less Than', value: '$lt' },
+      { label: 'Less Than or Equals', value: '$lte' },
+    ];
+  } else if (fieldType === 'date') {
+    return [
+      { label: 'Equals', value: '$eq' },
+      { label: 'Not Equals', value: '$ne' },
+      { label: 'After', value: '$gt' },
+      { label: 'After or On', value: '$gte' },
+      { label: 'Before', value: '$lt' },
+      { label: 'Before or On', value: '$lte' },
+    ];
+  } else if (fieldType === 'boolean') {
+    return [
+      { label: 'Is True', value: 'true' },
+      { label: 'Is False', value: 'false' },
+    ];
+  } else if (fieldType === 'null') {
+    return [
+      { label: 'Is Null', value: 'null' },
+      { label: 'Is Not Null', value: 'notNull' },
+    ];
+  } else {
+    // Default options for other types
+    return [
+      { label: 'Equals', value: '$eq' },
+      { label: 'Not Equals', value: '$ne' },
+    ];
+  }
 };
 
 // Component to show a single field's JSON value in a modal

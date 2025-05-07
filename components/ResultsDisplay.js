@@ -539,6 +539,24 @@ const ExpandableTableRow = ({ row, fields, onViewFieldJson }) => {
     handleCloseContextMenu();
   };
 
+  // Handle query option selection
+  const handleQueryOption = (option) => {
+    console.log(`Query option selected: ${option.label} (${option.value}) for field: ${selectedField}, value: ${selectedValue}`);
+    
+    // Create and trigger a custom event for query building
+    const event = new CustomEvent('build-query', {
+      detail: { 
+        field: selectedField, 
+        value: selectedValue,
+        operator: option.value,
+        label: option.label
+      }
+    });
+    window.dispatchEvent(event);
+    
+    handleCloseContextMenu();
+  };
+
   return (
     <>
       <TableRow>

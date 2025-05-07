@@ -48,6 +48,123 @@ const QueryEditor = ({
     }
   }, [id, query, connectionId, database]);
 
+  // Add event listener for build-query events from ResultsDisplay
+  useEffect(() => {
+    const handleBuildQuery = (event) => {
+      // Only proceed if we have valid query details
+      if (!event.detail) return;
+      
+      const { field, value, operator, label } = event.detail;
+      
+      if (!field || !operator) return;
+      
+      // Generate the appropriate query based on the operator and value type
+      let queryFragment;
+      
+      // Format the value based on its type
+      let formattedValue;
+      if (value === null) {
+        formattedValue = 'null';
+      } else if (value === undefined) {
+        formattedValue = 'undefined';
+      } else if (typeof value === 'string') {
+        // For strings, apply proper quoting
+        formattedValue = `"${value.replace(/"/g, '\\"')}"`;
+      } else if (typeof value === 'object' && value instanceof Date) {
+        // Handle date objects
+        formattedValue = `ISODate("${value.toISOString()}")`;
+      } else if (typeof value === 'object') {
+        // For objects, convert to string representation
+        formattedValue = JSON.stringify(value);
+      } else {
+        // For numbers, booleans, etc.
+        formattedValue = String(value);
+      }
+      
+      // Build the query fragment based on the operator
+      switch (operator) {
+        case '$eq':
+          queryFragment = `"${field}": ${formattedValue}`;
+          break;
+        case '$ne':
+          queryFragment = `"${field}": { "$ne": ${formattedValue} }`;
+          break;
+        case '$gt':
+          queryFragment = `"${field}": { "$gt": ${formattedValue} }`;
+          break;
+        case '$gte':
+          queryFragment = `"${field}": { "$gte": ${formattedValue} }`;
+          break;
+        case '$lt':
+          queryFragment = `"${field}": { "$lt": ${formattedValue} }`;
+          break;
+        case '$lte':
+          queryFragment = `"${field}": { "$lte": ${formattedValue} }`;
+          break;
+        case '$in':
+          queryFragment = `"${field}": { "$in": [${formattedValue}] }`;
+          break;
+        case '$nin':
+          queryFragment = `"${field}": { "$nin": [${formattedValue}] }`;
+          break;
+        case '$regex':
+          // Plain contains regex
+          queryFragment = `"${field}": { "$regex": "${value}", "$options": "i" }`;
+          break;
+        case '$regex^':
+          // Starts with regex
+          queryFragment = `"${field}": { "$regex": "^${value}", "$options": "i" }`;
+          break;
+        case '$regex$':
+          // Ends with regex
+          queryFragment = `"${field}": { "$regex": "${value}$", "$options": "i" }`;
+          break;
+        case 'null':
+          queryFragment = `"${field}": null`;
+          break;
+        case 'notNull':
+          queryFragment = `"${field}": { "$ne": null }`;
+          break;
+        case 'true':
+          queryFragment = `"${field}": true`;
+          break;
+        case 'false':
+          queryFragment = `"${field}": false`;
+          break;
+        default:
+          queryFragment = `"${field}": ${formattedValue}`;
+      }
+      
+      // Copy the query fragment to clipboard instead of inserting it directly
+      navigator.clipboard.writeText(queryFragment)
+        .then(() => {
+          console.log('Query copied to clipboard:', queryFragment);
+          // You could set a temporary state here to show a success message
+          // Example: setClipboardMessage('Query copied to clipboard!');
+          
+          // Optional: If you want to show a temporary notification
+          if (setError) {
+            setError('Query copied to clipboard: ' + queryFragment);
+            // Clear the message after a few seconds
+            setTimeout(() => setError(null), 3000);
+          }
+        })
+        .catch(err => {
+          console.error('Failed to copy query to clipboard:', err);
+          if (setError) {
+            setError('Failed to copy query to clipboard');
+          }
+        });
+    };
+    
+    // Add global event listener for build-query events
+    window.addEventListener('build-query', handleBuildQuery);
+    
+    return () => {
+      window.removeEventListener('build-query', handleBuildQuery);
+    };
+  }, [onUpdateQuery]);
+
   // Example queries for different types that users can reference
   const getExampleQueries = () => {
     return [
