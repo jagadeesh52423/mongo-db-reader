@@ -11,8 +11,7 @@ const router = express.Router();
 global.sessionTokens = {};
 // Add storage for local connections that aren't in the database
 global.localConnections = {};
-// Add storage for active MongoDB client connections
-global.activeConnections = {};
+// ActiveConnections is now defined in server.js
 
 // Helper function to generate a secure session token
 function generateSessionToken() {
@@ -299,6 +298,15 @@ router.post('/connect/:id', async (req, res) => {
     // Store the active connection in the global object
     global.activeConnections[connectionId] = client;
     
+    // Initialize activity tracking
+    if (global.updateConnectionActivity) {
+      global.updateConnectionActivity(connectionId);
+    } else {
+      // Fallback if function isn't available (shouldn't happen)
+      global.connectionLastActivity = global.connectionLastActivity || {};
+      global.connectionLastActivity[connectionId] = Date.now();
+    }
+    
     // Update last used timestamp (only for DB connections)
     if (!connectionId.startsWith('local_')) {
       connection.lastUsed = new Date();
@@ -382,7 +390,15 @@ router.post('/disconnect', (req, res) => {
         console.error(`Error closing connection ${connectionId}:`, err);
       })
       .finally(() => {
+        // Clean up all tracking data
         delete global.activeConnections[connectionId];
+        delete global.connectionLastActivity[connectionId];
+        
+        // Clear any timeout for this connection
+        if (global.connectionTimeouts && global.connectionTimeouts[connectionId]) {
+          clearTimeout(global.connectionTimeouts[connectionId]);
+          delete global.connectionTimeouts[connectionId];
+        }
       });
   }
   
