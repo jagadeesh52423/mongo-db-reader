@@ -36,12 +36,18 @@ const QueryEditor = forwardRef(({
     setHelpDrawerOpen(!helpDrawerOpen);
   };
 
-  // Listen for external trigger to execute query (for pagination)
+  // Listen for external trigger to execute query (for pagination or auto-run)
   useEffect(() => {
     const handleExecuteQuery = (event) => {
       const { pagination } = event.detail || {};
+      
+      // If pagination is specified, run with pagination params
       if (pagination) {
         handleRunCurrentQueryWithPagination(pagination);
+      } 
+      // Otherwise just run the current query (for auto-run)
+      else {
+        handleRunCurrentQuery();
       }
     };
 

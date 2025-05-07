@@ -123,7 +123,9 @@ const TabPanel = () => {
         results: null,
         connectionId,
         database,
-        queryEditorRef: React.createRef()
+        queryEditorRef: React.createRef(),
+        // Add flag to indicate this tab should auto-run its query
+        autoRun: true
       };
       
       setTabs([...tabs, newTab]);
@@ -140,6 +142,33 @@ const TabPanel = () => {
   const handleChangeTab = (event, newValue) => {
     setActiveTab(newValue);
   };
+  
+  // Auto-run query for newly opened collections or when switching to a tab that needs auto-run
+  useEffect(() => {
+    if (activeTab >= 0 && activeTab < tabs.length) {
+      const currentTab = tabs[activeTab];
+      
+      // Check if this tab needs auto-run and has a valid query
+      if (currentTab.autoRun && currentTab.query && currentTab.queryEditorRef?.current) {
+        // Run the query after a short delay to allow the component to fully render
+        const timer = setTimeout(() => {
+          // Trigger the query execution programmatically
+          const event = new CustomEvent('execute-query');
+          const queryEditor = document.getElementById(`query-editor-${currentTab.id}`);
+          if (queryEditor) {
+            queryEditor.dispatchEvent(event);
+            
+            // Clear the auto-run flag once executed
+            const updatedTabs = [...tabs];
+            updatedTabs[activeTab].autoRun = false;
+            setTabs(updatedTabs);
+          }
+        }, 300);
+        
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [activeTab, tabs]);
 
   const handleAddTab = () => {
     const newTabId = tabs.length > 0 ? Math.max(...tabs.map(tab => tab.id)) + 1 : 1;
