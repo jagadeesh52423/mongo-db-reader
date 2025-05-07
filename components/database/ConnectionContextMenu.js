@@ -5,7 +5,7 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import PowerIcon from '@mui/icons-material/Power';
-import { ConnectionContext } from '../contexts/ConnectionContext';
+import { ConnectionContext } from '../../contexts/ConnectionContext';
 
 const ConnectionContextMenu = ({ x, y, connectionId, isConnected, onClose, hasMultipleActiveConnections }) => {
   const { connectToDatabase, disconnectDatabase, disconnectAllDatabases, deleteConnection, updateConnection, focusConnection, duplicateConnection } = useContext(ConnectionContext);

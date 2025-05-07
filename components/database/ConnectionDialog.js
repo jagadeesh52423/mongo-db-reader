@@ -20,7 +20,7 @@ import {
   IconButton
 } from '@mui/material';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
-import { ConnectionContext } from '../contexts/ConnectionContext';
+import { ConnectionContext } from '../../contexts/ConnectionContext';
 
 const ConnectionDialog = ({ open, handleClose, initialData = null, isEditing = false }) => {
   const { testConnection, saveConnection, updateConnection, loading } = useContext(ConnectionContext);

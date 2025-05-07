@@ -2,9 +2,8 @@ import React, { useState, useContext, useEffect } from 'react';
 import { Box, Tabs, Tab, IconButton, Tooltip, Chip, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
-import QueryEditor from './QueryEditor';
-import ResultsDisplay from './ResultsDisplay';
-import { ConnectionContext, CONNECTION_EVENTS } from '../contexts/ConnectionContext';
+import { QueryEditor, ResultsDisplay } from '../editor';
+import { ConnectionContext, CONNECTION_EVENTS } from '../../contexts/ConnectionContext';
 import { COLLECTION_EVENTS } from './Sidebar';
 
 // Generate a consistent color for a connection

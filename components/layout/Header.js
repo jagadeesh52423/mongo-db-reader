@@ -26,8 +26,8 @@ import StorageIcon from '@mui/icons-material/Storage';
 import PowerOffIcon from '@mui/icons-material/PowerOff';
 import Brightness4Icon from '@mui/icons-material/Brightness4';
 import Brightness7Icon from '@mui/icons-material/Brightness7';
-import { ConnectionContext } from '../contexts/ConnectionContext';
-import ConnectionDialog from './ConnectionDialog';
+import { ConnectionContext } from '../../contexts/ConnectionContext';
+import { ConnectionDialog } from '../database';
 
 const Header = ({ handleDrawerToggle, themeMode, setThemeMode }) => {
   const [openDialog, setOpenDialog] = useState(false);

@@ -7,10 +7,7 @@ import {
   Toolbar,
   useMediaQuery
 } from '@mui/material';
-import Header from '../components/Header';
-import Sidebar from '../components/Sidebar';
-import TabPanel from '../components/TabPanel';
-import ServerStatusBar from '../components/ServerStatusBar';
+import { Header, Sidebar, TabPanel, ServerStatusBar } from '../components';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
 const drawerWidth = 240;

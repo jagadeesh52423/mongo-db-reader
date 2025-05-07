@@ -201,13 +201,54 @@ const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
         )}
         
         {viewMode === 'table' && fields.length > 0 && (
-          <TableContainer component={Paper} variant="outlined">
-            <Table size="small" aria-label="results table">
+          <TableContainer 
+            component={Paper} 
+            variant="outlined" 
+            sx={{ 
+              overflowX: 'auto',
+              '&::-webkit-scrollbar': {
+                height: '8px',
+              },
+              '&::-webkit-scrollbar-track': {
+                backgroundColor: 'transparent',
+              },
+              '&::-webkit-scrollbar-thumb': {
+                backgroundColor: theme => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+                borderRadius: '4px',
+              },
+              '&::-webkit-scrollbar-thumb:hover': {
+                backgroundColor: theme => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
+              },
+            }}
+          >
+            <Table 
+              size="small" 
+              aria-label="results table"
+              sx={{ 
+                tableLayout: 'auto',
+                minWidth: {
+                  xs: fields.length > 3 ? fields.length * 120 : '100%',
+                  sm: fields.length > 5 ? fields.length * 120 : '100%',
+                }
+              }}
+            >
               <TableHead>
                 <TableRow>
-                  <TableCell padding="checkbox" sx={{ width: 40 }}></TableCell>
-                  {fields.map((field) => (
-                    <TableCell key={field}>{field}</TableCell>
+                  <TableCell padding="checkbox" sx={{ width: 40, position: 'sticky', left: 0, bgcolor: 'background.paper', zIndex: 2 }}></TableCell>
+                  {fields.map((field, index) => (
+                    <TableCell 
+                      key={field}
+                      sx={{
+                        position: index === 0 ? { xs: 'sticky', md: 'static' } : 'static',
+                        left: index === 0 ? 40 : 'auto',
+                        bgcolor: index === 0 ? 'background.paper' : 'transparent',
+                        zIndex: index === 0 ? 1 : 0,
+                        minWidth: 120,
+                        maxWidth: 250
+                      }}
+                    >
+                      <Typography noWrap variant="subtitle2">{field}</Typography>
+                    </TableCell>
                   ))}
                 </TableRow>
               </TableHead>
@@ -226,7 +267,15 @@ const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
         )}
         
         {showPagination && (
-          <Box sx={{ mt: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Stack 
+            direction={{ xs: 'column', sm: 'row' }} 
+            spacing={{ xs: 2, sm: 1 }} 
+            sx={{ 
+              mt: 2, 
+              justifyContent: { xs: 'center', sm: 'space-between' },
+              alignItems: 'center'
+            }}
+          >
             <FormControl size="small" sx={{ minWidth: 120 }}>
               <InputLabel id="page-size-select-label">Page Size</InputLabel>
               <Select
@@ -247,14 +296,41 @@ const SingleResultDisplay = ({ results, onPageChange, pageable = false }) => {
               page={page} 
               onChange={handlePageChange} 
               color="primary" 
+              size="medium"
               showFirstButton 
               showLastButton
+              siblingCount={1}
+              boundaryCount={1}
+              sx={{
+                '& .MuiPaginationItem-root': {
+                  display: { xs: 'none', sm: 'flex' }
+                },
+                '& .MuiPaginationItem-page': {
+                  display: { xs: 'none', sm: 'flex' }
+                },
+                '& .MuiPaginationItem-page.Mui-selected': {
+                  display: 'flex'
+                },
+                '& .MuiPaginationItem-previousNext': {
+                  display: 'flex'
+                },
+                '& .MuiPaginationItem-firstLast': {
+                  display: { xs: 'none', md: 'flex' }
+                }
+              }}
             />
             
-            <Typography variant="body2" color="text.secondary">
+            <Typography 
+              variant="body2" 
+              color="text.secondary"
+              sx={{ 
+                display: { xs: 'none', md: 'block' },
+                textAlign: { xs: 'center', sm: 'right' }
+              }}
+            >
               Showing {((page - 1) * pageSize) + 1}-{Math.min(page * pageSize, count)} of {count}
             </Typography>
-          </Box>
+          </Stack>
         )}
       </Box>
 
@@ -542,31 +618,63 @@ const ExpandableTableRow = ({ row, fields, onViewFieldJson }) => {
   return (
     <>
       <TableRow>
-        <TableCell padding="checkbox">
+        <TableCell 
+          padding="checkbox"
+          sx={{ 
+            position: 'sticky', 
+            left: 0, 
+            bgcolor: 'background.paper', 
+            zIndex: 1,
+            borderRight: '1px solid',
+            borderRightColor: 'divider',
+          }}
+        >
           <Tooltip title="View record as JSON">
             <IconButton size="small" onClick={toggleExpand}>
-              <VisibilityIcon fontSize="small" />
+              {expanded ? 
+                <ExpandLessIcon fontSize="small" /> :
+                <VisibilityIcon fontSize="small" />
+              }
             </IconButton>
           </Tooltip>
         </TableCell>
-        {fields.map((field) => {
+        {fields.map((field, index) => {
           const value = row[field];
           const isComplex = value !== null && typeof value === 'object';
+          const isFirstColumn = index === 0;
           
           return (
             <TableCell 
               key={field}
               onContextMenu={(e) => handleContextMenu(e, field, value)}
               sx={{ 
-                maxWidth: MAX_CELL_WIDTH,
+                maxWidth: isFirstColumn ? 200 : MAX_CELL_WIDTH,
+                minWidth: isFirstColumn ? 120 : 80,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
                 cursor: 'default',
-                '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' }
+                '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.04)' },
+                position: isFirstColumn ? { xs: 'sticky', md: 'static' } : 'static',
+                left: isFirstColumn ? 40 : 'auto',
+                bgcolor: isFirstColumn ? 'background.paper' : 'transparent',
+                zIndex: isFirstColumn ? 1 : 0,
+                borderRight: isFirstColumn ? '1px solid' : 'none',
+                borderRightColor: 'divider',
               }}
             >
-              {formatCellValue(value)}
+              <Typography
+                component="span"
+                variant="body2" 
+                noWrap
+                sx={{ 
+                  display: 'block',
+                  color: isComplex ? 'primary.main' : 'text.primary',
+                  fontStyle: value === null ? 'italic' : 'normal',
+                }}
+              >
+                {formatCellValue(value)}
+              </Typography>
             </TableCell>
           );
         })}
@@ -576,8 +684,35 @@ const ExpandableTableRow = ({ row, fields, onViewFieldJson }) => {
         <TableRow>
           <TableCell colSpan={fields.length + 1} sx={{ p: 0, borderBottom: 0 }}>
             <Collapse in={expanded}>
-              <Box sx={{ p: 2, bgcolor: 'action.hover' }}>
-                <SimpleJSONViewer data={row} />
+              <Box 
+                sx={{ 
+                  p: 2, 
+                  bgcolor: theme => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
+                  borderTop: '1px dashed',
+                  borderTopColor: 'divider',
+                  borderBottom: '1px dashed',
+                  borderBottomColor: 'divider',
+                  mx: 1,
+                  my: 0.5,
+                  borderRadius: 1,
+                  overflowX: 'auto',
+                }}
+              >
+                <Paper 
+                  variant="outlined" 
+                  sx={{ 
+                    p: 1.5,
+                    backgroundColor: theme => theme.palette.mode === 'dark' ? 'rgba(0, 0, 0, 0.2)' : 'rgba(255, 255, 255, 0.9)',
+                    maxHeight: {
+                      xs: '200px',
+                      sm: '300px',
+                      md: 'none'
+                    },
+                    overflow: 'auto'
+                  }}
+                >
+                  <SimpleJSONViewer data={row} />
+                </Paper>
               </Box>
             </Collapse>
           </TableCell>

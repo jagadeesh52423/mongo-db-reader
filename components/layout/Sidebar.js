@@ -11,8 +11,8 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import PowerSettingsNewIcon from '@mui/icons-material/PowerSettingsNew';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
-import { ConnectionContext, CONNECTION_EVENTS } from '../contexts/ConnectionContext';
-import ConnectionContextMenu from './ConnectionContextMenu';
+import { ConnectionContext, CONNECTION_EVENTS } from '../../contexts/ConnectionContext';
+import { ConnectionContextMenu } from '../database';
 
 // Define collection events for use in the application
 export const COLLECTION_EVENTS = {
@@ -232,28 +232,53 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
         <ListItemButton 
           onClick={() => handleDatabaseClick(connectionId, dbName)}
           selected={isActiveDatabase}
-          sx={{ pl: 4 }}
+          sx={{ 
+            pl: 4,
+            position: 'relative',
+            '&::after': isActiveDatabase ? {
+              content: '""',
+              position: 'absolute',
+              left: 0,
+              top: '4px',
+              bottom: '4px',
+              width: '3px',
+              backgroundColor: 'primary.main',
+              borderRadius: '0 2px 2px 0',
+            } : {}
+          }}
         >
-          <ListItemIcon>
+          <ListItemIcon sx={{ minWidth: 36 }}>
             {isDatabaseExpanded ? <ExpandMoreIcon /> : <ChevronRightIcon />}
           </ListItemIcon>
-          <ListItemIcon>
+          <ListItemIcon sx={{ minWidth: 36 }}>
             <DatabaseIcon color={isActiveDatabase ? "primary" : "action"} />
           </ListItemIcon>
           <ListItemText 
             primary={dbName}
             primaryTypographyProps={{
               fontSize: '0.9rem',
-              fontWeight: isActiveDatabase ? 'bold' : 'normal'
+              fontWeight: isActiveDatabase ? 'bold' : 'normal',
+              noWrap: true,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis'
             }}
           />
         </ListItemButton>
         
-        <div style={{ display: isDatabaseExpanded ? 'block' : 'none' }}>
+        <Collapse in={isDatabaseExpanded} timeout="auto" unmountOnExit>
           {isLoadingCollections ? (
             <ListItem sx={{ pl: 8 }}>
               <ListItemIcon sx={{ minWidth: 30 }}>
-                <FiberManualRecordIcon sx={{ fontSize: 10, color: 'text.disabled', animation: 'pulse 1.5s infinite ease-in-out' }} />
+                <FiberManualRecordIcon sx={{ 
+                  fontSize: 10, 
+                  color: 'text.disabled', 
+                  animation: 'pulse 1.5s infinite ease-in-out',
+                  '@keyframes pulse': {
+                    '0%': { opacity: 0.4 },
+                    '50%': { opacity: 1 },
+                    '100%': { opacity: 0.4 },
+                  }
+                }} />
               </ListItemIcon>
               <ListItemText 
                 primary="Loading collections..."
@@ -268,20 +293,41 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
             connectionData.collections && 
             Array.isArray(connectionData.collections) && 
             connectionData.collections.length > 0 ? (
-              <List component="div" disablePadding>
+              <List 
+                component="div" 
+                disablePadding
+                dense
+                sx={{ 
+                  maxHeight: connectionData.collections.length > 15 ? '300px' : 'auto',
+                  overflow: connectionData.collections.length > 15 ? 'auto' : 'visible',
+                  transition: 'max-height 0.3s ease-in-out',
+                }}
+              >
                 {[...connectionData.collections].sort().map(collection => (
                   <ListItemButton 
                     key={`${connectionId}-${dbName}-${collection}`}
-                    sx={{ pl: 8 }}
+                    sx={{ 
+                      pl: 8,
+                      py: 0.5,
+                      borderRadius: '0 4px 4px 0',
+                      mx: 1,
+                      transition: 'background-color 0.2s ease',
+                      '&:hover': {
+                        backgroundColor: 'action.hover',
+                      }
+                    }}
                     onDoubleClick={() => handleCollectionClick(connectionId, dbName, collection)}
                   >
-                    <ListItemIcon>
+                    <ListItemIcon sx={{ minWidth: 36 }}>
                       <CollectionIcon fontSize="small" color="warning" />
                     </ListItemIcon>
                     <ListItemText 
                       primary={collection}
                       primaryTypographyProps={{
-                        fontSize: '0.85rem'
+                        fontSize: '0.85rem',
+                        noWrap: true,
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis'
                       }}
                     />
                   </ListItemButton>
@@ -299,7 +345,7 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
               </ListItem>
             )
           )}
-        </div>
+        </Collapse>
       </React.Fragment>
     );
   };
@@ -321,8 +367,38 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
       </Toolbar>
 
       {/* Scrollable area */}
-      <Box sx={{ flexGrow: 1, overflow: 'auto' }}>
-        <Box sx={{ px: 2, py: 1.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <Box 
+        sx={{ 
+          flexGrow: 1, 
+          overflow: 'auto',
+          position: 'relative',
+          '&::-webkit-scrollbar': {
+            width: '8px',
+          },
+          '&::-webkit-scrollbar-track': {
+            backgroundColor: 'transparent',
+          },
+          '&::-webkit-scrollbar-thumb': {
+            backgroundColor: theme => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
+            borderRadius: '4px',
+          },
+          '&::-webkit-scrollbar-thumb:hover': {
+            backgroundColor: theme => theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)',
+          },
+          maxHeight: 'calc(100vh - 128px)', // Subtract header and footer heights
+        }}
+      >
+        <Box sx={{ 
+          px: 2, 
+          py: 1.5, 
+          display: 'flex', 
+          justifyContent: 'space-between', 
+          alignItems: 'center',
+          position: 'sticky',
+          top: 0,
+          backgroundColor: theme => theme.palette.background.paper,
+          zIndex: 1,
+        }}>
           <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: 0.5 }}>
             Connections
           </Typography>
@@ -419,13 +495,20 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
                     </ListItemButton>
                     
                     {/* Databases List */}
-                    <div style={{ display: isExpanded ? 'block' : 'none' }}>
-                      <List component="div" disablePadding>
+                    <Collapse in={isExpanded} timeout="auto" unmountOnExit>
+                      <List 
+                        component="div" 
+                        disablePadding
+                        sx={{
+                          maxHeight: connectionData.databases && connectionData.databases.length > 15 ? '400px' : 'auto',
+                          overflow: connectionData.databases && connectionData.databases.length > 15 ? 'auto' : 'visible',
+                        }}
+                      >
                         {connectionData.databases && connectionData.databases.map(dbName => 
                           renderDatabase(connectionId, dbName, connectionData)
                         )}
                       </List>
-                    </div>
+                    </Collapse>
                   </React.Fragment>
                 );
               })}

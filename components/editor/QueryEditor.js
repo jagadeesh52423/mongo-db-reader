@@ -3,9 +3,9 @@ import { Box, Button, Paper, Typography, Tooltip, ButtonGroup, FormControl, Sele
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
-import { ConnectionContext } from '../contexts/ConnectionContext';
-import MongoHelpDrawer from './MongoHelpDrawer';
-import MongoCodeEditor from './MongoCodeEditor';
+import { ConnectionContext } from '../../contexts/ConnectionContext';
+import { MongoHelpDrawer } from '../ui';
+import { UltraSimpleEditor } from '../editor';
 
 const QueryEditor = ({ 
   id,
@@ -718,6 +718,13 @@ const QueryEditor = ({
     }
   };
 
+  // Use memoized change handler to prevent unnecessary re-renders
+  const handleEditorChange = React.useCallback((newValue) => {
+    if (newValue !== query) {
+      onUpdateQuery(newValue);
+    }
+  }, [onUpdateQuery, query]);
+
   return (
     <Box sx={{ mb: 3 }} id={id}>
       <Box sx={{ display: 'flex', mb: 1, alignItems: 'center', justifyContent: 'space-between' }}>
@@ -754,10 +761,10 @@ const QueryEditor = ({
       </Box>
       
       <Paper variant="outlined" sx={{ mb: 2 }}>
-        <MongoCodeEditor
+        <UltraSimpleEditor
           ref={editorRef}
           value={query || ''}
-          onChange={onUpdateQuery}
+          onChange={handleEditorChange}
           placeholder={getExampleQueries()}
           height="200px"
         />

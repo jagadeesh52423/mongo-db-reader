@@ -1,6 +1,6 @@
 import React, { useContext } from 'react';
 import { Box, Alert, Button, Typography, Link } from '@mui/material';
-import { ConnectionContext } from '../contexts/ConnectionContext';
+import { ConnectionContext } from '../../contexts/ConnectionContext';
 
 const ServerStatusBar = () => {
   const { serverStatus, retryConnection, error } = useContext(ConnectionContext);

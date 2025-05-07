@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
+import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef, useCallback } from 'react';
 import { EditorState } from '@codemirror/state';
 import { EditorView, keymap, placeholder, lineNumbers, highlightActiveLine } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
@@ -9,9 +9,24 @@ import { oneDark } from '@codemirror/theme-one-dark';
 import { autocompletion } from '@codemirror/autocomplete';
 import { syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { tags } from '@lezer/highlight';
+import { useTheme } from '@mui/material/styles';
 
-// Custom highlighting for MongoDB syntax
-const mongoHighlightStyle = HighlightStyle.define([
+// Light mode highlighting for MongoDB syntax
+const mongoLightHighlightStyle = HighlightStyle.define([
+  { tag: tags.keyword, color: "#0000ff" },
+  { tag: tags.string, color: "#008000" },
+  { tag: tags.number, color: "#098658" },
+  { tag: tags.comment, color: "#708090", fontStyle: "italic" },
+  { tag: tags.propertyName, color: "#660e7a" },
+  { tag: tags.operator, color: "#0000ff" },
+  { tag: tags.function(tags.variableName), color: "#795e26" },
+  { tag: tags.definition(tags.variableName), color: "#795e26" },
+  { tag: tags.null, color: "#0000ff" },
+  { tag: tags.bool, color: "#0000ff" },
+]);
+
+// Dark mode highlighting for MongoDB syntax
+const mongoDarkHighlightStyle = HighlightStyle.define([
   { tag: tags.keyword, color: "#cc7832" },
   { tag: tags.string, color: "#6a8759" },
   { tag: tags.number, color: "#6897bb" },
@@ -106,6 +121,8 @@ const MongoCodeEditor = forwardRef(({
 }, ref) => {
   const editorRef = useRef();
   const viewRef = useRef();
+  const theme = useTheme();
+  const isDarkMode = theme.palette.mode === 'dark';
   
   // Track selection for cursor position
   const [selection, setSelection] = useState({ anchor: 0, head: 0 });
@@ -141,7 +158,53 @@ const MongoCodeEditor = forwardRef(({
     }
   }));
 
-  useEffect(() => {
+  // Create a custom theme extension based on the current app theme
+  const createThemeExtension = useCallback(() => {
+    return EditorView.theme({
+      "&": {
+        backgroundColor: isDarkMode ? "#1e1e24" : "#ffffff",
+        color: isDarkMode ? "#e0e0e0" : "#333333",
+      },
+      ".cm-content": {
+        caretColor: isDarkMode ? "#90caf9" : "#1976d2",
+      },
+      ".cm-cursor": {
+        borderLeftColor: isDarkMode ? "#90caf9" : "#1976d2",
+        borderLeftWidth: "2px",
+      },
+      ".cm-activeLine": {
+        backgroundColor: isDarkMode ? "rgba(66, 153, 225, 0.1)" : "rgba(25, 118, 210, 0.05)",
+      },
+      ".cm-gutters": {
+        backgroundColor: isDarkMode ? "#1e1e24" : "#f0f0f0",
+        color: isDarkMode ? "#6c7280" : "#888888",
+        border: isDarkMode ? "1px solid rgba(255, 255, 255, 0.05)" : "1px solid rgba(0, 0, 0, 0.05)",
+      },
+      ".cm-activeLineGutter": {
+        backgroundColor: isDarkMode ? "rgba(66, 153, 225, 0.2)" : "rgba(25, 118, 210, 0.1)",
+      },
+      ".cm-selectionBackground": {
+        backgroundColor: isDarkMode ? "rgba(66, 153, 225, 0.4)" : "rgba(25, 118, 210, 0.2) !important",
+      },
+      ".cm-tooltip": {
+        backgroundColor: isDarkMode ? "#282c34" : "#ffffff",
+        border: isDarkMode ? "1px solid #3f3f46" : "1px solid #cccccc",
+        borderRadius: "4px",
+      },
+      ".cm-tooltip-autocomplete": {
+        "& > ul > li[aria-selected]": {
+          backgroundColor: isDarkMode ? "#4b5263" : "#e3f2fd",
+          color: isDarkMode ? "#d7dce4" : "#1976d2",
+        }
+      },
+    }, { dark: isDarkMode });
+  }, [isDarkMode]);
+
+  // Track internal changes to avoid update loops
+  const isInternalChange = useRef(false);
+  
+  // Initialize the editor
+  const initEditor = useCallback((content = value || '', cursorPos = 0) => {
     if (!editorRef.current) return;
     
     // Define the extensions for our editor
@@ -149,7 +212,8 @@ const MongoCodeEditor = forwardRef(({
       history(),
       javascript({ jsx: false, typescript: false }),
       json(),
-      syntaxHighlighting(mongoHighlightStyle),
+      syntaxHighlighting(isDarkMode ? mongoDarkHighlightStyle : mongoLightHighlightStyle),
+      createThemeExtension(),
       lineNumbers(),
       highlightActiveLine(),
       autocompletion({ override: [mongoCompletions] }),
@@ -157,8 +221,16 @@ const MongoCodeEditor = forwardRef(({
       placeholder(placeholderText),
       EditorView.updateListener.of(update => {
         if (update.docChanged) {
+          // Mark this as an internal change
+          isInternalChange.current = true;
+          
           // Call onChange with the new document content
           onChange(update.state.doc.toString());
+          
+          // Reset the flag after a short delay to allow React to process the state update
+          setTimeout(() => {
+            isInternalChange.current = false;
+          }, 0);
         }
         
         // Update selection state when the selection changes
@@ -178,8 +250,9 @@ const MongoCodeEditor = forwardRef(({
 
     // Create the editor state
     const state = EditorState.create({
-      doc: value || '',
-      extensions
+      doc: content,
+      extensions,
+      selection: { anchor: cursorPos, head: cursorPos }
     });
 
     // Create the editor view
@@ -190,27 +263,63 @@ const MongoCodeEditor = forwardRef(({
 
     // Store the view in a ref for later use
     viewRef.current = view;
+  }, [isDarkMode, value, placeholderText, createThemeExtension, onChange]);
 
+  // Init editor on mount
+  useEffect(() => {
+    initEditor();
+    
     // Clean up on unmount
     return () => {
       if (viewRef.current) {
         viewRef.current.destroy();
       }
     };
-  }, [placeholderText]);
+  }, [initEditor]);
 
-  // Update the editor content when the value changes from outside
+  // Re-create the editor when the theme changes
+  useEffect(() => {
+    if (!editorRef.current || !viewRef.current) return;
+    
+    // Store current content and cursor position
+    const currentContent = viewRef.current.state.doc.toString();
+    const currentCursor = viewRef.current.state.selection.main.head;
+    
+    // Destroy the existing editor view
+    viewRef.current.destroy();
+    
+    // Create a new editor with the updated theme
+    initEditor(currentContent, currentCursor);
+  }, [isDarkMode, initEditor]);
+
+  // Update content when value prop changes, but only when it comes from an external source
   useEffect(() => {
     if (!viewRef.current) return;
 
+    // Skip this update if the change came from within the editor
+    if (isInternalChange.current) {
+      return;
+    }
+    
+    // Skip this update if the editor has focus - this prevents focus loss during typing
+    if (document.activeElement === editorRef.current || 
+        (editorRef.current && editorRef.current.contains(document.activeElement))) {
+      return;
+    }
+
     const currentContent = viewRef.current.state.doc.toString();
     if (value !== currentContent) {
+      // Save cursor position before update
+      const { head, anchor } = viewRef.current.state.selection.main;
+      
       viewRef.current.dispatch({
         changes: {
           from: 0,
           to: viewRef.current.state.doc.length,
           insert: value || ''
-        }
+        },
+        // Restore selection after update
+        selection: { anchor, head }
       });
     }
   }, [value]);
@@ -222,8 +331,11 @@ const MongoCodeEditor = forwardRef(({
         height, 
         overflow: 'auto',
         fontFamily: 'monospace',
-        border: '1px solid rgba(255, 255, 255, 0.23)', // match MUI outlined TextField
+        border: isDarkMode 
+          ? '1px solid rgba(255, 255, 255, 0.23)' 
+          : '1px solid rgba(0, 0, 0, 0.23)',
         borderRadius: '4px',
+        transition: 'border-color 0.2s ease-in-out',
       }}
       className="mongo-code-editor"
     />
