@@ -1,8 +1,9 @@
 import React, { useContext, useState, useRef } from 'react';
-import { Box, Button, FormControl, InputLabel, Select, MenuItem, Paper } from '@mui/material';
-import PlayArrowIcon from '@mui/icons-material/PlayArrow';
+import { Box, Button, FormControl, InputLabel, Select, MenuItem, Paper, alpha } from '@mui/material'; // Added alpha
+import PlayArrowOutlinedIcon from '@mui/icons-material/PlayArrowOutlined';
 import { ConnectionContext } from '../contexts/ConnectionContext';
 import MongoCodeEditor from '../../../components/MongoCodeEditor';
+import { parseMongoQuery } from '../../utils/queryParser'; // Import the new utility
 
 const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
   const { executeQuery, activeConnection, activeDatabase, activeCollection } = useContext(ConnectionContext);
@@ -17,32 +18,20 @@ const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
     }
 
     try {
-      // Parse the query string to JSON
+      let queryToExecute = query;
+      if (editorRef.current) {
+        const selection = editorRef.current.getSelection();
+        if (selection.text) {
+          queryToExecute = selection.text;
+        }
+      }
+
       let parsedQuery;
       try {
-        // If there's a selection, use that instead of the full query
-        let queryToExecute = query;
-        if (editorRef.current) {
-          const selection = editorRef.current.getSelection();
-          if (selection.text) {
-            queryToExecute = selection.text;
-          }
-        }
-        
-        // Handle different query formats based on type
-        if (queryType === 'find' || queryType === 'findOne' || queryType === 'count' || queryType === 'delete') {
-          parsedQuery = queryToExecute ? JSON.parse(queryToExecute) : {};
-        } else if (queryType === 'update') {
-          parsedQuery = queryToExecute ? JSON.parse(queryToExecute) : { filter: {}, update: { $set: {} } };
-        } else if (queryType === 'aggregate') {
-          parsedQuery = queryToExecute ? JSON.parse(queryToExecute) : [];
-        } else if (queryType === 'distinct') {
-          parsedQuery = queryToExecute ? JSON.parse(queryToExecute) : { field: '', filter: {} };
-        } else if (queryType === 'insert') {
-          parsedQuery = queryToExecute ? JSON.parse(queryToExecute) : {};
-        }
+        parsedQuery = parseMongoQuery(queryToExecute, queryType);
       } catch (e) {
-        setError('Invalid JSON: ' + e.message);
+        // The error from parseMongoQuery now includes "Invalid JSON for {queryType} query: "
+        setError(e.message); 
         return;
       }
 
@@ -100,34 +89,61 @@ const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
             value={queryType}
             label="Query Type"
             onChange={handleQueryTypeChange}
+            sx={{ 
+              color: 'text.primary', 
+              '.MuiSvgIcon-root': { color: 'text.secondary' },
+              '&.MuiOutlinedInput-root': {
+                '& fieldset': { borderColor: 'text.secondary' },
+                '&:hover fieldset': { borderColor: 'primary.main' },
+              }
+            }}
+            MenuProps={{
+              PaperProps: {
+                sx: { bgcolor: 'background.paper' },
+              },
+            }}
           >
-            <MenuItem value="find">Find</MenuItem>
-            <MenuItem value="findOne">Find One</MenuItem>
-            <MenuItem value="count">Count</MenuItem>
-            <MenuItem value="aggregate">Aggregate</MenuItem>
-            <MenuItem value="distinct">Distinct</MenuItem>
-            <MenuItem value="insert">Insert</MenuItem>
-            <MenuItem value="update">Update</MenuItem>
-            <MenuItem value="delete">Delete</MenuItem>
+            <MenuItem value="find" sx={{ color: 'text.primary' }}>Find</MenuItem>
+            <MenuItem value="findOne" sx={{ color: 'text.primary' }}>Find One</MenuItem>
+            <MenuItem value="count" sx={{ color: 'text.primary' }}>Count</MenuItem>
+            <MenuItem value="aggregate" sx={{ color: 'text.primary' }}>Aggregate</MenuItem>
+            <MenuItem value="distinct" sx={{ color: 'text.primary' }}>Distinct</MenuItem>
+            <MenuItem value="insert" sx={{ color: 'text.primary' }}>Insert</MenuItem>
+            <MenuItem value="update" sx={{ color: 'text.primary' }}>Update</MenuItem>
+            <MenuItem value="delete" sx={{ color: 'text.primary' }}>Delete</MenuItem>
           </Select>
         </FormControl>
         <Button 
           variant="contained" 
-          color="primary" 
-          startIcon={<PlayArrowIcon />}
+          color="primary" // Uses theme.palette.primary.main for background (#00FFFF)
+          startIcon={<PlayArrowOutlinedIcon />}
           onClick={handleRunQuery}
+          sx={{ 
+            color: 'background.default', // background.default is #0A0F1A
+            transition: (theme) => theme.transitions.create(['background-color', 'transform'], { 
+              duration: theme.transitions.duration.short,
+            }),
+            '&:hover': { 
+              backgroundColor: (theme) => alpha(theme.palette.primary.main, 0.85), // Slightly darken primary
+              transform: 'scale(1.03)',
+            },
+          }}
         >
           Run Query
         </Button>
       </Box>
       
-      <Paper variant="outlined" sx={{ mb: 2 }}>
+      <Paper variant="outlined" sx={{ mb: 2, bgcolor: 'background.paper', borderColor: 'divider' }}>
         <MongoCodeEditor 
           ref={editorRef}
           value={query || ''}
           onChange={onUpdateQuery}
           placeholder={getPlaceholderQuery()}
           height="200px"
+          // MongoCodeEditor's internal theme (syntax highlighting, gutter, etc.)
+          // needs to be configured for a dark theme that matches the futuristic palette.
+          // This might involve passing theme props to it (if available) or
+          // updating its internal CodeMirror (or other editor) theme setup.
         />
       </Paper>
       
@@ -135,8 +151,9 @@ const QueryEditor = ({ query, onUpdateQuery, onQueryResult }) => {
         <Paper 
           sx={{ 
             p: 2, 
-            bgcolor: 'error.dark',
-            color: 'error.contrastText'
+            bgcolor: 'error.main', // Use error.main from theme
+            color: 'common.white', // Ensure high contrast text
+            mt: 2 
           }}
         >
           {error}

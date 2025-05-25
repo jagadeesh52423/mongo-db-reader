@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Box, Tabs, Tab, IconButton } from '@mui/material';
-import AddIcon from '@mui/icons-material/Add';
-import CloseIcon from '@mui/icons-material/Close';
+import { Box, Tabs, Tab, IconButton, alpha } from '@mui/material'; // Added alpha
+import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
+import CloseSharpIcon from '@mui/icons-material/CloseSharp';
 import QueryEditor from './QueryEditor';
 import ResultsDisplay from './ResultsDisplay';
 
@@ -61,17 +61,42 @@ const TabPanel = () => {
                   <IconButton
                     size="small"
                     onClick={(e) => handleCloseTab(e, index)}
-                    sx={{ ml: 1 }}
+                    sx={{ 
+                      ml: 1,
+                      // Inherit color from parent Tab, which changes based on active state
+                      color: 'inherit', 
+                      // Optionally, slightly dim if not hovered, if needed for inactive tabs
+                      // opacity: 0.7, 
+                      // '&:hover': { 
+                      //   opacity: 1,
+                      //   color: 'primary.main' // Or specific hover color
+                      // }
+                    }}
                   >
-                    <CloseIcon fontSize="small" />
+                    <CloseSharpIcon fontSize="small" />
                   </IconButton>
                 </Box>
               }
+              sx={(theme) => ({
+                transition: theme.transitions.create(['background-color', 'opacity'], {
+                  duration: theme.transitions.duration.short,
+                }),
+                '&:not(.Mui-selected):hover': {
+                  backgroundColor: alpha(theme.palette.primary.main, 0.1),
+                  // opacity: 0.9, // Or change text color slightly if preferred
+                },
+                // Ensure selected tab text color is distinctly primary
+                '&.Mui-selected': {
+                  color: theme.palette.primary.main,
+                },
+                // Default text color for non-selected tabs
+                color: theme.palette.text.secondary, 
+              })}
             />
           ))}
         </Tabs>
         <IconButton color="primary" onClick={handleAddTab}>
-          <AddIcon />
+          <AddOutlinedIcon />
         </IconButton>
       </Box>
       {tabs.map((tab, index) => (

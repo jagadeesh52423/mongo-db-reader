@@ -10,9 +10,10 @@ import {
   Box,
   Toolbar,
   Typography,
-  CircularProgress
+  CircularProgress,
+  alpha
 } from '@mui/material';
-import StorageIcon from '@mui/icons-material/Storage';
+import StorageOutlinedIcon from '@mui/icons-material/StorageOutlined'; // Changed
 import { ConnectionContext } from '../contexts/ConnectionContext';
 
 const drawerWidth = 240;
@@ -44,14 +45,43 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
           ) : (
             connections.map((connection) => (
               <ListItem key={connection._id} disablePadding>
-                <ListItemButton 
+                <ListItemButton
                   onClick={() => handleConnectionClick(connection._id)}
                   selected={activeConnection && activeConnection._id === connection._id}
+                  sx={(theme) => ({
+                    // Apply transition to background-color and color (for text and icons)
+                    transition: theme.transitions.create(['background-color', 'color'], {
+                      duration: theme.transitions.duration.short,
+                    }),
+                    // Default state for icon (text already defaults to text.primary)
+                    '& .MuiListItemIcon-root': {
+                      color: theme.palette.text.secondary,
+                    },
+                    // Hover state for non-selected items
+                    '&:not(.Mui-selected):hover': {
+                      backgroundColor: alpha(theme.palette.primary.main, 0.12), // Subtle cyan hover
+                      color: theme.palette.primary.light, // Lighter text on hover
+                      '& .MuiListItemIcon-root': {
+                        color: theme.palette.primary.main, // Icon becomes primary color
+                      },
+                    },
+                    // Selected state
+                    '&.Mui-selected': {
+                      backgroundColor: alpha(theme.palette.primary.main, 0.25),
+                      color: theme.palette.primary.main, // Text color becomes primary
+                      '& .MuiListItemIcon-root': {
+                        color: theme.palette.primary.main, // Icon color becomes primary
+                      },
+                      '&:hover': {
+                        backgroundColor: alpha(theme.palette.primary.main, 0.35),
+                      },
+                    },
+                  })}
                 >
-                  <ListItemIcon>
-                    <StorageIcon />
+                  <ListItemIcon> {/* sx removed, controlled by ListItemButton sx */}
+                    <StorageOutlinedIcon />
                   </ListItemIcon>
-                  <ListItemText primary={connection.name} />
+                  <ListItemText primary={connection.name} /> {/* sx removed, controlled by ListItemButton sx */}
                 </ListItemButton>
               </ListItem>
             ))
@@ -76,7 +106,11 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
         }}
         sx={{
           display: { xs: 'block', sm: 'none' },
-          '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+          '& .MuiDrawer-paper': { 
+            boxSizing: 'border-box', 
+            width: drawerWidth,
+            bgcolor: 'background.paper', // Explicitly set background
+          },
         }}
       >
         {drawer}
@@ -86,7 +120,11 @@ const Sidebar = ({ mobileOpen, handleDrawerToggle }) => {
         variant="permanent"
         sx={{
           display: { xs: 'none', sm: 'block' },
-          '& .MuiDrawer-paper': { boxSizing: 'border-box', width: drawerWidth },
+          '& .MuiDrawer-paper': { 
+            boxSizing: 'border-box', 
+            width: drawerWidth,
+            bgcolor: 'background.paper', // Explicitly set background
+          },
         }}
         open
       >

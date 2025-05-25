@@ -7,12 +7,42 @@ import { ConnectionProvider } from './contexts/ConnectionContext';
 
 const theme = createTheme({
   palette: {
-    mode: 'dark',
+    mode: 'dark', // Keep dark mode
     primary: {
-      main: '#90caf9',
+      main: '#00FFFF', // Accent Color 1 (Cyan)
     },
     secondary: {
-      main: '#f48fb1',
+      main: '#9F00FF', // Accent Color 2 (Electric Purple)
+    },
+    error: {
+      main: '#FF3B30',
+    },
+    success: {
+      main: '#34C759',
+    },
+    background: {
+      default: '#0A0F1A', // Primary Background
+      paper: '#1A202C',   // Secondary Background/Surface
+    },
+    text: {
+      primary: '#E0E0E0',   // Primary Text
+      secondary: '#A0A0A0', // Secondary Text
+    },
+  },
+  typography: {
+    fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif', // Explicitly state Roboto
+    fontFamilyMonospace: '"Fira Code", "Consolas", "Monaco", monospace', // Monospace font
+  },
+  components: {
+    MuiCssBaseline: {
+      styleOverrides: `
+        code {
+          font-family: "Fira Code", "Consolas", "Monaco", monospace;
+        }
+        pre {
+          font-family: "Fira Code", "Consolas", "Monaco", monospace;
+        }
+      `,
     },
   },
 });
